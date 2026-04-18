@@ -1,85 +1,112 @@
 # Claude Usage Bar
 
-Application menu bar macOS pour surveiller votre consommation Claude Max.
+A lightweight macOS menu bar app to monitor your Claude Max subscription usage in real-time.
 
-## Fonctionnalites
+![Claude Usage Bar Screenshot](assets/screenshot.png)
 
-- Barre de progression dans la menu bar avec pourcentage d'utilisation
-- Couleurs dynamiques : vert (<50%) → jaune (50-80%) → rouge (>80%)
-- Details au clic : session 5h, limites hebdomadaires, Claude Design
-- Rafraichissement automatique toutes les 5 minutes
-- Stockage securise des credentials dans le Keychain
+## Features
+
+- **Menu bar indicator** showing current session usage percentage
+- **Detailed popover** with all usage metrics:
+  - Session (5h) usage with reset countdown
+  - Weekly limits for all models
+  - Sonnet-only usage
+  - Claude Design usage
+- **Auto-refresh** every 5 minutes
+- **Secure storage** of credentials in macOS Keychain
+- **Launch at startup** support via LaunchAgent
+
+## Requirements
+
+- macOS 12.0+ (Monterey or later)
+- A Claude Max subscription
+- Xcode Command Line Tools (for building)
 
 ## Installation
 
-### Option 1: Compiler avec Xcode
-
-1. Ouvrir le dossier dans Xcode :
-   ```bash
-   cd ~/Developer/ClaudeUsageBar
-   open Package.swift
-   ```
-
-2. Dans Xcode : Product → Build (Cmd+B)
-
-3. Product → Run (Cmd+R)
-
-### Option 2: Compiler en ligne de commande
+### Option 1: Build from source
 
 ```bash
-cd ~/Developer/ClaudeUsageBar
+git clone https://github.com/LouisMasson/ClaudeUsageBar.git
+cd ClaudeUsageBar
 swift build -c release
 ```
 
-L'executable sera dans `.build/release/ClaudeUsageBar`
+The executable will be at `.build/release/ClaudeUsageBar`
+
+### Option 2: Open in Xcode
+
+```bash
+cd ClaudeUsageBar
+open Package.swift
+```
+
+Then press `Cmd+R` to build and run.
 
 ## Configuration
 
-Au premier lancement, l'app ouvrira automatiquement la fenetre de configuration.
+On first launch, a configuration window will appear. You need to provide:
 
-### Obtenir l'Organization ID
+### 1. Organization ID
 
-1. Aller sur https://claude.ai/settings/usage
-2. Ouvrir DevTools (Cmd+Option+I)
-3. Onglet Network → Filtrer par XHR
-4. Rafraichir la page
-5. Chercher la requete vers `/api/organizations/.../usage`
-6. L'ID est dans l'URL : `8b711afd-6fda-44ef-8382-d45659a498a1`
+1. Go to [claude.ai/settings/usage](https://claude.ai/settings/usage)
+2. Open DevTools (`Cmd+Option+I`)
+3. Go to **Network** tab, filter by **XHR/Fetch**
+4. Refresh the page
+5. Look for a request to `/api/organizations/.../usage`
+6. Copy the UUID from the URL (e.g., `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)
 
-### Obtenir le Cookie de Session
+### 2. Session Cookie
 
-1. Dans la meme requete, onglet Headers
-2. Copier la valeur complete du header `Cookie`
+1. In the same request, go to **Headers** tab
+2. Find **Request Headers** > **Cookie**
+3. Copy only the `sessionKey=sk-ant-sid01-...` part
 
-## Utilisation
+## Usage
 
-- Clic sur l'icone : affiche les details d'utilisation
-- Icone engrenage : ouvrir les parametres
-- Icone X : quitter l'application
+- **Click** on the menu bar icon to see detailed usage
+- **Refresh button** to manually update data
+- **Gear icon** to open settings
+- **X icon** to quit the app
 
-## Lancer au demarrage
+## Launch at Startup
 
-1. Preferences Systeme → Utilisateurs et groupes
-2. Onglet "Ouverture"
-3. Ajouter ClaudeUsageBar
+The app includes a LaunchAgent for automatic startup. To enable:
 
-## Structure du projet
+```bash
+cp ~/Library/LaunchAgents/com.louismasson.ClaudeUsageBar.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.louismasson.ClaudeUsageBar.plist
+```
+
+## Project Structure
 
 ```
 ClaudeUsageBar/
-├── Package.swift
-├── ClaudeUsageBar/
-│   ├── Info.plist
-│   └── Sources/
-│       ├── ClaudeUsageBarApp.swift  # Point d'entree
-│       ├── StatusBarController.swift # Controle menu bar
-│       ├── PopoverView.swift         # Interface SwiftUI
-│       ├── UsageData.swift           # Modeles de donnees
-│       ├── ClaudeAPIService.swift    # Appels API
-│       └── KeychainHelper.swift      # Stockage securise
+├── Package.swift              # Swift Package Manager config
+├── README.md
+├── claude-usage               # Helper script to start/stop
+└── ClaudeUsageBar/
+    ├── Info.plist
+    └── Sources/
+        ├── ClaudeUsageBarApp.swift    # App entry point
+        ├── StatusBarController.swift   # Menu bar controller
+        ├── PopoverView.swift           # SwiftUI views
+        ├── UsageData.swift             # Data models
+        ├── ClaudeAPIService.swift      # API client
+        └── KeychainHelper.swift        # Secure storage
 ```
 
-## Compatibilite
+## Privacy & Security
 
-- macOS 12.0+ (Monterey)
-- Compatible Intel et Apple Silicon
+- Credentials are stored securely in macOS Keychain
+- No data is sent to third parties
+- The app only communicates with `claude.ai`
+- Session cookies expire after ~30 days and need to be refreshed
+
+## License
+
+MIT License - Feel free to use and modify.
+
+---
+
+Built with Swift and SwiftUI.

@@ -1,0 +1,15 @@
+# Build artifacts
+.build/
+.swiftpm/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# macOS
+.DS_Store
+*.dSYM
+
+# Xcode
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout

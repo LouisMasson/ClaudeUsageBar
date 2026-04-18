@@ -1,0 +1,37 @@
+#!/bin/bash
+# Script pour lancer/relancer Claude Usage Bar
+
+APP_PATH="$HOME/Developer/ClaudeUsageBar/.build/release/ClaudeUsageBar"
+
+case "$1" in
+    start)
+        pkill -f ClaudeUsageBar 2>/dev/null
+        sleep 0.5
+        "$APP_PATH" &
+        echo "Claude Usage Bar demarre"
+        ;;
+    stop)
+        pkill -f ClaudeUsageBar 2>/dev/null
+        echo "Claude Usage Bar arrete"
+        ;;
+    restart)
+        pkill -f ClaudeUsageBar 2>/dev/null
+        sleep 0.5
+        "$APP_PATH" &
+        echo "Claude Usage Bar redemarre"
+        ;;
+    status)
+        if pgrep -f ClaudeUsageBar > /dev/null; then
+            echo "Claude Usage Bar est en cours d'execution"
+        else
+            echo "Claude Usage Bar n'est pas en cours d'execution"
+        fi
+        ;;
+    *)
+        # Par defaut: restart
+        pkill -f ClaudeUsageBar 2>/dev/null
+        sleep 0.5
+        "$APP_PATH" &
+        echo "Claude Usage Bar demarre"
+        ;;
+esac

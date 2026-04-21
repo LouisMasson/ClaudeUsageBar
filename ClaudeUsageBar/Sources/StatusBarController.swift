@@ -10,11 +10,13 @@ class StatusBarController: NSObject {
 
     let usageState = UsageState()
     let settingsState = SettingsState()
+    private lazy var notchOverlay = NotchOverlayController(usageState: usageState)
 
     override init() {
         super.init()
         setupStatusItem()
         setupPopover()
+        applyNotchOverlayPreference()
         loadCredentialsAndRefresh()
         startAutoRefresh()
     }
@@ -85,6 +87,7 @@ class StatusBarController: NSObject {
 
         settingsState.orgId = KeychainHelper.load(.organizationId) ?? ""
         settingsState.cookie = KeychainHelper.load(.sessionCookie) ?? ""
+        settingsState.notchOverlayEnabled = UserDefaults.standard.bool(forKey: SettingsState.notchOverlayKey)
 
         settingsPopover = NSPopover()
         settingsPopover.contentSize = NSSize(width: 320, height: 280)
@@ -121,10 +124,22 @@ class StatusBarController: NSObject {
         let savedCookie = KeychainHelper.save(cookie, for: .sessionCookie)
         print("DEBUG: Saved orgId=\(savedOrg), cookie=\(savedCookie)")
 
+        UserDefaults.standard.set(settingsState.notchOverlayEnabled, forKey: SettingsState.notchOverlayKey)
+        applyNotchOverlayPreference()
+
         settingsPopover?.performClose(nil)
 
         Task {
             await refreshUsage()
+        }
+    }
+
+    private func applyNotchOverlayPreference() {
+        if settingsState.notchOverlayEnabled {
+            notchOverlay.enable()
+            notchOverlay.refresh()
+        } else {
+            notchOverlay.disable()
         }
     }
 
@@ -163,6 +178,7 @@ class StatusBarController: NSObject {
 
             // Update status bar with session utilization
             updateStatusButton(utilization: usage.fiveHour?.utilization ?? 0)
+            notchOverlay.refresh()
 
         } catch {
             usageState.isLoading = false

@@ -73,8 +73,11 @@ struct ExtraUsage: Codable {
 // MARK: - App State
 
 class SettingsState: ObservableObject {
+    static let notchOverlayKey = "notchOverlayEnabled"
+
     @Published var orgId: String = ""
     @Published var cookie: String = ""
+    @Published var notchOverlayEnabled: Bool = UserDefaults.standard.bool(forKey: SettingsState.notchOverlayKey)
 }
 
 @MainActor

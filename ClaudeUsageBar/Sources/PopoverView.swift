@@ -215,6 +215,19 @@ struct SettingsViewWrapper: View {
                 .font(.caption2)
                 .foregroundColor(.secondary)
 
+            Divider()
+
+            Toggle(isOn: $settingsState.notchOverlayEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Overlay sous l'encoche")
+                        .font(.body)
+                    Text("Affiche l'usage au survol du haut de l'écran (Mac notch).")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+
             HStack {
                 Spacer()
                 Button("Annuler", action: onCancel)

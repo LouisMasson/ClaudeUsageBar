@@ -12,6 +12,7 @@ A lightweight macOS menu bar app to monitor your Claude Max subscription usage i
   - Weekly limits for all models
   - Sonnet-only usage
   - Claude Design usage
+- **Notch overlay** — hover the top of the screen to reveal a floating pill with session %, progress bar, and reset countdown. Sits right under the Mac notch (works on non-notched Macs too). Opt-in from Settings.
 - **Auto-refresh** every 5 minutes
 - **Secure storage** of credentials in macOS Keychain
 - **Launch at startup** support via LaunchAgent
@@ -69,6 +70,16 @@ On first launch, a configuration window will appear. You need to provide:
 - **Gear icon** to open settings
 - **X icon** to quit the app
 
+## Notch overlay
+
+A floating pill can appear under the Mac notch when the cursor enters a hot zone at the top of the screen — showing session %, a color-coded progress bar, and the reset countdown without having to click the menu bar icon.
+
+1. Open **Settings** (gear icon in the popover)
+2. Toggle **"Overlay sous l'encoche"** on, save
+3. Move the cursor near the notch — the pill fades in; move away, it fades out
+
+Implementation: a non-activating `NSPanel` positioned under `safeAreaInsets.top`, driven by a global mouse monitor. Doesn't steal focus. Disabled by default, persisted in `UserDefaults`. Also works on Macs without a notch (hot zone = top-center of the main screen).
+
 ## Launch at Startup
 
 The app includes a LaunchAgent for automatic startup. To enable:
@@ -93,7 +104,9 @@ ClaudeUsageBar/
         ├── PopoverView.swift           # SwiftUI views
         ├── UsageData.swift             # Data models
         ├── ClaudeAPIService.swift      # API client
-        └── KeychainHelper.swift        # Secure storage
+        ├── KeychainHelper.swift        # Secure storage
+        ├── NotchOverlayController.swift # Notch hover overlay (panel + mouse monitor)
+        └── NotchOverlayView.swift       # SwiftUI pill rendered in the overlay
 ```
 
 ## Privacy & Security

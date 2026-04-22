@@ -87,10 +87,11 @@ class StatusBarController: NSObject {
 
         settingsState.orgId = KeychainHelper.load(.organizationId) ?? ""
         settingsState.cookie = KeychainHelper.load(.sessionCookie) ?? ""
+        settingsState.openRouterKey = KeychainHelper.load(.openRouterAPIKey) ?? ""
         settingsState.notchOverlayEnabled = UserDefaults.standard.bool(forKey: SettingsState.notchOverlayKey)
 
         settingsPopover = NSPopover()
-        settingsPopover.contentSize = NSSize(width: 320, height: 280)
+        settingsPopover.contentSize = NSSize(width: 320, height: 340)
         settingsPopover.behavior = .applicationDefined  // Ne se ferme pas automatiquement
         settingsPopover.animates = true
 
@@ -114,15 +115,21 @@ class StatusBarController: NSObject {
     private func saveSettings() {
         let orgId = settingsState.orgId.trimmingCharacters(in: .whitespacesAndNewlines)
         let cookie = settingsState.cookie.trimmingCharacters(in: .whitespacesAndNewlines)
+        let openRouterKey = settingsState.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !orgId.isEmpty, !cookie.isEmpty else {
-            print("DEBUG: orgId ou cookie vide")
             return
         }
 
-        let savedOrg = KeychainHelper.save(orgId, for: .organizationId)
-        let savedCookie = KeychainHelper.save(cookie, for: .sessionCookie)
-        print("DEBUG: Saved orgId=\(savedOrg), cookie=\(savedCookie)")
+        _ = KeychainHelper.save(orgId, for: .organizationId)
+        _ = KeychainHelper.save(cookie, for: .sessionCookie)
+
+        // OpenRouter key is optional — empty field removes any existing key.
+        if openRouterKey.isEmpty {
+            KeychainHelper.delete(.openRouterAPIKey)
+        } else {
+            _ = KeychainHelper.save(openRouterKey, for: .openRouterAPIKey)
+        }
 
         UserDefaults.standard.set(settingsState.notchOverlayEnabled, forKey: SettingsState.notchOverlayKey)
         applyNotchOverlayPreference()
@@ -166,25 +173,49 @@ class StatusBarController: NSObject {
         usageState.isLoading = true
         usageState.error = nil
 
-        do {
-            let usage = try await ClaudeAPIService.shared.fetchUsage(
-                organizationId: orgId,
-                sessionKey: cookie
-            )
+        let openRouterKey = KeychainHelper.load(.openRouterAPIKey)
 
+        // Fire both requests concurrently.
+        async let claudeResult = ClaudeAPIService.shared.fetchUsage(
+            organizationId: orgId,
+            sessionKey: cookie
+        )
+        async let openRouterResult: Result<OpenRouterCredits, Error>? = {
+            guard let key = openRouterKey else { return nil }
+            do {
+                let credits = try await OpenRouterAPIService.shared.fetchCredits(apiKey: key)
+                return .success(credits)
+            } catch {
+                return .failure(error)
+            }
+        }()
+
+        // Claude (primary) — errors populate the main error banner.
+        do {
+            let usage = try await claudeResult
             usageState.usage = usage
             usageState.lastUpdated = Date()
-            usageState.isLoading = false
-
-            // Update status bar with session utilization
             updateStatusButton(utilization: usage.fiveHour?.utilization ?? 0)
             notchOverlay.refresh()
-
         } catch {
-            usageState.isLoading = false
             usageState.error = error.localizedDescription
             updateStatusButton(utilization: 0)
         }
+
+        // OpenRouter (optional) — isolated from Claude's state.
+        switch await openRouterResult {
+        case .none:
+            usageState.openRouterCredits = nil
+            usageState.openRouterError = nil
+        case .success(let credits):
+            usageState.openRouterCredits = credits
+            usageState.openRouterError = nil
+        case .failure(let error):
+            usageState.openRouterCredits = nil
+            usageState.openRouterError = error.localizedDescription
+        }
+
+        usageState.isLoading = false
     }
 
     private func startAutoRefresh() {

@@ -70,6 +70,29 @@ struct ExtraUsage: Codable {
     }
 }
 
+// MARK: - OpenRouter Models
+
+struct OpenRouterCreditsResponse: Codable {
+    let data: OpenRouterCredits
+}
+
+struct OpenRouterCredits: Codable {
+    let totalCredits: Double
+    let totalUsage: Double
+
+    enum CodingKeys: String, CodingKey {
+        case totalCredits = "total_credits"
+        case totalUsage = "total_usage"
+    }
+
+    var remaining: Double { max(0, totalCredits - totalUsage) }
+
+    var utilization: Int {
+        guard totalCredits > 0 else { return 0 }
+        return min(100, Int((totalUsage / totalCredits) * 100))
+    }
+}
+
 // MARK: - App State
 
 class SettingsState: ObservableObject {
@@ -77,6 +100,7 @@ class SettingsState: ObservableObject {
 
     @Published var orgId: String = ""
     @Published var cookie: String = ""
+    @Published var openRouterKey: String = ""
     @Published var notchOverlayEnabled: Bool = UserDefaults.standard.bool(forKey: SettingsState.notchOverlayKey)
 }
 
@@ -86,6 +110,9 @@ class UsageState: ObservableObject {
     @Published var isLoading = false
     @Published var error: String?
     @Published var lastUpdated: Date?
+
+    @Published var openRouterCredits: OpenRouterCredits?
+    @Published var openRouterError: String?
 
     var sessionUtilization: Int {
         usage?.fiveHour?.utilization ?? 0
@@ -109,5 +136,19 @@ class UsageState: ObservableObject {
 
     var designUtilization: Int {
         usage?.sevenDayOmelette?.utilization ?? 0
+    }
+
+    var openRouterUtilization: Int {
+        openRouterCredits?.utilization ?? 0
+    }
+
+    var openRouterRemainingLabel: String {
+        guard let credits = openRouterCredits else { return "—" }
+        return String(format: "$%.2f restants", credits.remaining)
+    }
+
+    var openRouterTotalLabel: String {
+        guard let credits = openRouterCredits else { return "" }
+        return String(format: "$%.2f / $%.2f", credits.totalUsage, credits.totalCredits)
     }
 }

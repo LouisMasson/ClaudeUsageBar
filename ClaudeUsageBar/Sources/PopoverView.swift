@@ -113,6 +113,27 @@ struct UsageDetailsView: View {
                 utilization: usageState.designUtilization,
                 resetTime: usageState.usage?.sevenDayOmelette?.timeUntilReset ?? "N/A"
             )
+
+            // OpenRouter — only rendered when a key is configured and at least
+            // one fetch has completed (success or failure).
+            if usageState.openRouterCredits != nil || usageState.openRouterError != nil {
+                Text("OPENROUTER")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 4)
+
+                if let credits = usageState.openRouterCredits {
+                    UsageRow(
+                        title: "Crédits",
+                        utilization: credits.utilization,
+                        resetTime: usageState.openRouterRemainingLabel
+                    )
+                } else if let error = usageState.openRouterError {
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundColor(.red)
+                }
+            }
         }
     }
 }
@@ -217,6 +238,20 @@ struct SettingsViewWrapper: View {
 
             Divider()
 
+            VStack(alignment: .leading, spacing: 4) {
+                Text("OpenRouter API Key (optionnel)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("sk-or-v1-...", text: $settingsState.openRouterKey)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+                Text("Laissez vide pour désactiver l'affichage OpenRouter.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+            Divider()
+
             Toggle(isOn: $settingsState.notchOverlayEnabled) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Overlay sous l'encoche")
@@ -232,11 +267,8 @@ struct SettingsViewWrapper: View {
                 Spacer()
                 Button("Annuler", action: onCancel)
                     .buttonStyle(.bordered)
-                Button("Sauvegarder") {
-                    print("DEBUG: Save clicked")
-                    onSave()
-                }
-                .buttonStyle(.borderedProminent)
+                Button("Sauvegarder", action: onSave)
+                    .buttonStyle(.borderedProminent)
             }
         }
         .padding()

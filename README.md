@@ -12,6 +12,8 @@ A lightweight macOS menu bar app to monitor your Claude Max subscription usage i
   - Weekly limits for all models
   - Sonnet-only usage
   - Claude Design usage
+  - **OpenRouter credits** (optional) — remaining balance + utilization bar
+- **Optional notch overlay** — hover the top of the screen to peek at session usage
 - **Auto-refresh** every 5 minutes
 - **Secure storage** of credentials in macOS Keychain
 - **Launch at startup** support via LaunchAgent
@@ -20,6 +22,7 @@ A lightweight macOS menu bar app to monitor your Claude Max subscription usage i
 
 - macOS 12.0+ (Monterey or later)
 - A Claude Max subscription
+- *(Optional)* An [OpenRouter](https://openrouter.ai) account with an API key
 - Xcode Command Line Tools (for building)
 
 ## Installation
@@ -62,6 +65,18 @@ On first launch, a configuration window will appear. You need to provide:
 2. Find **Request Headers** > **Cookie**
 3. Copy only the `sessionKey=sk-ant-sid01-...` part
 
+### 3. OpenRouter API Key *(optional)*
+
+If you also use [OpenRouter](https://openrouter.ai) to access other models, the app
+can display your remaining credits alongside Claude usage.
+
+1. Go to [openrouter.ai/keys](https://openrouter.ai/keys)
+2. Create a new API key (read-only is fine — the app only calls `GET /api/v1/credits`)
+3. Copy the `sk-or-v1-...` value into the **"OpenRouter API Key"** field in settings
+
+Leave this field empty to hide the OpenRouter section entirely. Clearing it and
+saving also removes the key from your Keychain.
+
 ## Usage
 
 - **Click** on the menu bar icon to see detailed usage
@@ -88,20 +103,24 @@ ClaudeUsageBar/
 └── ClaudeUsageBar/
     ├── Info.plist
     └── Sources/
-        ├── ClaudeUsageBarApp.swift    # App entry point
-        ├── StatusBarController.swift   # Menu bar controller
-        ├── PopoverView.swift           # SwiftUI views
-        ├── UsageData.swift             # Data models
-        ├── ClaudeAPIService.swift      # API client
-        └── KeychainHelper.swift        # Secure storage
+        ├── ClaudeUsageBarApp.swift       # App entry point
+        ├── StatusBarController.swift      # Menu bar controller
+        ├── PopoverView.swift              # SwiftUI views
+        ├── NotchOverlayController.swift   # Notch hover overlay (AppKit)
+        ├── NotchOverlayView.swift         # Notch overlay SwiftUI view
+        ├── UsageData.swift                # Data models
+        ├── ClaudeAPIService.swift         # claude.ai API client
+        ├── OpenRouterAPIService.swift     # OpenRouter API client
+        └── KeychainHelper.swift           # Secure storage
 ```
 
 ## Privacy & Security
 
-- Credentials are stored securely in macOS Keychain
+- Credentials (Claude session cookie, OpenRouter API key) are stored securely in macOS Keychain
 - No data is sent to third parties
-- The app only communicates with `claude.ai`
+- The app only communicates with `claude.ai` and, if configured, `openrouter.ai`
 - Session cookies expire after ~30 days and need to be refreshed
+- The OpenRouter key is only used to call `GET /api/v1/credits` (read-only balance lookup)
 
 ## License
 

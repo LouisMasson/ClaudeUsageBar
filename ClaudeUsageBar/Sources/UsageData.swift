@@ -114,12 +114,23 @@ class UsageState: ObservableObject {
     @Published var openRouterCredits: OpenRouterCredits?
     @Published var openRouterError: String?
 
+    // Burn-rate tracker for the 5h rolling window only. Weekly buckets refresh too
+    // slowly for a useful linear projection.
+    let sessionBurnRate = BurnRateTracker()
+
     var sessionUtilization: Int {
         usage?.fiveHour?.utilization ?? 0
     }
 
     var sessionResetTime: String {
         usage?.fiveHour?.timeUntilReset ?? "N/A"
+    }
+
+    /// Projected utilization (%) at the 5h window reset. Same unit as Anthropic's
+    /// `utilization` field. Returns nil when not enough samples or not consuming.
+    var sessionProjectedUtilization: Int? {
+        guard let resetDate = usage?.fiveHour?.resetDate else { return nil }
+        return sessionBurnRate.projectedUtilization(at: resetDate)
     }
 
     var weeklyUtilization: Int {

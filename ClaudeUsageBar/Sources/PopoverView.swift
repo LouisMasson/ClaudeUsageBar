@@ -87,7 +87,8 @@ struct UsageDetailsView: View {
                 title: "Session (5h)",
                 utilization: usageState.sessionUtilization,
                 resetTime: usageState.sessionResetTime,
-                isPrimary: true
+                isPrimary: true,
+                projectedAtReset: usageState.sessionProjectedUtilization
             )
 
             // Limites hebdomadaires
@@ -143,9 +144,18 @@ struct UsageRow: View {
     let utilization: Int
     let resetTime: String
     var isPrimary: Bool = false
+    /// Projected utilization (%) at reset time. Only the session row uses this;
+    /// weekly buckets move too slowly for a useful short-term forecast.
+    var projectedAtReset: Int? = nil
 
+    /// Color driven by projection when present (forward-looking), else current utilization.
     var barColor: Color {
-        return .orange
+        let reference = projectedAtReset ?? utilization
+        switch reference {
+        case ..<60:  return .green
+        case ..<85:  return .orange
+        default:     return .red
+        }
     }
 
     var body: some View {
@@ -172,9 +182,17 @@ struct UsageRow: View {
             }
             .frame(height: 6)
 
-            Text("Reset: \(resetTime)")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            HStack(spacing: 8) {
+                Text("Reset: \(resetTime)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                if let projected = projectedAtReset {
+                    Spacer()
+                    Text("→ \(projected)% au reset")
+                        .font(.caption)
+                        .foregroundColor(barColor)
+                }
+            }
         }
     }
 }

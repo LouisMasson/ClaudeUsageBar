@@ -16,9 +16,16 @@ struct NotchOverlayView: View {
                     .foregroundColor(.secondary)
 
                 HStack(spacing: 8) {
-                    Text("\(usageState.sessionUtilization)%")
-                        .font(.system(size: 15, weight: .bold, design: .monospaced))
-                        .foregroundColor(.primary)
+                    HStack(spacing: 2) {
+                        Text("\(usageState.sessionUtilization)%")
+                            .font(.system(size: 15, weight: .bold, design: .monospaced))
+                            .foregroundColor(.primary)
+                        if let projected = usageState.sessionProjectedUtilization {
+                            Text("→\(projected)%")
+                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                .foregroundColor(tintColor)
+                        }
+                    }
 
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
@@ -50,8 +57,11 @@ struct NotchOverlayView: View {
         )
     }
 
+    /// Color driven by projection when available (forward-looking), otherwise by
+    /// current utilization. Mirrors the menu bar and popover palette.
     private var tintColor: Color {
-        switch usageState.sessionUtilization {
+        let reference = usageState.sessionProjectedUtilization ?? usageState.sessionUtilization
+        switch reference {
         case ..<60:  return .green
         case ..<85:  return .orange
         default:     return .red

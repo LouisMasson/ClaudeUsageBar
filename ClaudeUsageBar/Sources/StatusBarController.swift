@@ -52,18 +52,27 @@ class StatusBarController: NSObject {
         popover.contentViewController = NSHostingController(rootView: popoverView)
     }
 
-    func updateStatusButton(utilization: Int) {
+    func updateStatusButton(utilization: Int, projected: Int? = nil) {
         guard let button = statusItem.button else { return }
 
-        // Create attributed string with progress bar
-        // Visual bar calculation (for future use)
-        _ = Int(Double(40) * Double(utilization) / 100.0)
+        // Color driven by the projection when available (forward-looking), otherwise
+        // by current utilization. Thresholds mirror the notch pill so the UI stays consistent.
+        let reference = projected ?? utilization
+        let color: NSColor = {
+            switch reference {
+            case ..<60:  return .systemGreen
+            case ..<85:  return .systemOrange
+            default:     return .systemRed
+            }
+        }()
 
-        let color: NSColor = .systemOrange
-
-        // Use a simple text representation with percentage
-        let icon = "◐"  // Half-filled circle icon
-        let text = "\(icon) \(utilization)%"
+        let icon = "◐"
+        let text: String
+        if let projected = projected {
+            text = "\(icon) \(utilization)% → \(projected)%"
+        } else {
+            text = "\(icon) \(utilization)%"
+        }
 
         let attributed = NSMutableAttributedString(string: text)
         attributed.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: text.count))
@@ -195,7 +204,23 @@ class StatusBarController: NSObject {
             let usage = try await claudeResult
             usageState.usage = usage
             usageState.lastUpdated = Date()
-            updateStatusButton(utilization: usage.fiveHour?.utilization ?? 0)
+            // Record a sample per bucket so every indicator can project forward.
+            if let util = usage.fiveHour?.utilization {
+                usageState.sessionBurnRate.record(utilization: util)
+            }
+            if let util = usage.sevenDay?.utilization {
+                usageState.weeklyBurnRate.record(utilization: util)
+            }
+            if let util = usage.sevenDaySonnet?.utilization {
+                usageState.sonnetBurnRate.record(utilization: util)
+            }
+            if let util = usage.sevenDayOmelette?.utilization {
+                usageState.designBurnRate.record(utilization: util)
+            }
+            updateStatusButton(
+                utilization: usage.fiveHour?.utilization ?? 0,
+                projected: usageState.sessionProjectedUtilization
+            )
             notchOverlay.refresh()
         } catch {
             usageState.error = error.localizedDescription

@@ -87,6 +87,8 @@ saving also removes the key from your Keychain.
 
 ## Burn-rate projection
 
+![Burn-rate projection in menu bar + popover](assets/burn-rate-projection.png)
+
 Every bucket (Session 5h, Weekly all models, Sonnet, Claude Design) tracks a rolling window of samples and projects where utilization will land at its own reset. Same unit as Anthropic's API — percent — so nothing new to learn.
 
 **What you see:**
@@ -107,7 +109,9 @@ Implementation: `BurnRateProjection.swift`. Self-contained, `@MainActor`, no ext
 
 ## Notch overlay
 
-A floating pill can appear under the Mac notch when the cursor enters a hot zone at the top of the screen — showing session %, a color-coded progress bar, and the reset countdown without having to click the menu bar icon.
+![Notch overlay pill](assets/notch-overlay.png)
+
+A floating pill can appear under the Mac notch when the cursor enters a hot zone at the top of the screen — showing session %, the burn-rate projection, a color-coded progress bar, and the reset countdown without having to click the menu bar icon.
 
 1. Open **Settings** (gear icon in the popover)
 2. Toggle **"Overlay sous l'encoche"** on, save

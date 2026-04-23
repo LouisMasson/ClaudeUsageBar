@@ -13,16 +13,28 @@ final class BurnRateTracker {
     }
 
     private var samples: [Sample] = []
-    private let maxSamples = 12          // ~1h at 5min cadence
+    private let maxSamples: Int
     private let minSamplesForProjection = 2
-    private let minWindowSeconds: TimeInterval = 5 * 60  // ignore near-duplicate timestamps
+    private let minWindowSeconds: TimeInterval = 5 * 60
+    /// Samples older than this are evicted on every record. Should match the bucket's
+    /// reset cadence so history never straddles a reset boundary (e.g. 5h for the
+    /// session window, 7 days for weekly buckets).
+    private let maxSampleAge: TimeInterval
 
-    /// Record a new utilization reading. If utilization dropped (reset crossed),
-    /// flush history so the slope reflects the new window only.
+    init(maxSampleAge: TimeInterval = 5 * 3600, maxSamples: Int = 12) {
+        self.maxSampleAge = maxSampleAge
+        self.maxSamples = maxSamples
+    }
+
+    /// Record a new utilization reading. Handles two sources of history drift:
+    /// 1. Explicit reset detection: utilization dropped vs the previous sample → flush.
+    /// 2. Temporal purge: drop samples older than `maxSampleAge` so the slope never
+    ///    spans a missed reset (e.g. Mac slept through it).
     func record(utilization: Int, at date: Date = Date()) {
         if let last = samples.last, utilization < last.utilization {
             samples.removeAll()
         }
+        samples.removeAll { date.timeIntervalSince($0.timestamp) > maxSampleAge }
         samples.append(Sample(timestamp: date, utilization: utilization))
         if samples.count > maxSamples {
             samples.removeFirst(samples.count - maxSamples)

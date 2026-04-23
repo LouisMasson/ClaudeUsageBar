@@ -100,19 +100,22 @@ struct UsageDetailsView: View {
             UsageRow(
                 title: "Tous modeles",
                 utilization: usageState.weeklyUtilization,
-                resetTime: usageState.weeklyResetTime
+                resetTime: usageState.weeklyResetTime,
+                projectedAtReset: usageState.weeklyProjectedUtilization
             )
 
             UsageRow(
                 title: "Sonnet",
                 utilization: usageState.sonnetUtilization,
-                resetTime: usageState.usage?.sevenDaySonnet?.timeUntilReset ?? "N/A"
+                resetTime: usageState.usage?.sevenDaySonnet?.timeUntilReset ?? "N/A",
+                projectedAtReset: usageState.sonnetProjectedUtilization
             )
 
             UsageRow(
                 title: "Claude Design",
                 utilization: usageState.designUtilization,
-                resetTime: usageState.usage?.sevenDayOmelette?.timeUntilReset ?? "N/A"
+                resetTime: usageState.usage?.sevenDayOmelette?.timeUntilReset ?? "N/A",
+                projectedAtReset: usageState.designProjectedUtilization
             )
 
             // OpenRouter — only rendered when a key is configured and at least

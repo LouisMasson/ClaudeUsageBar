@@ -114,9 +114,12 @@ class UsageState: ObservableObject {
     @Published var openRouterCredits: OpenRouterCredits?
     @Published var openRouterError: String?
 
-    // Burn-rate tracker for the 5h rolling window only. Weekly buckets refresh too
-    // slowly for a useful linear projection.
-    let sessionBurnRate = BurnRateTracker()
+    // One tracker per Anthropic bucket. Window size matches the bucket's reset
+    // cadence so the sample history never straddles a reset boundary.
+    let sessionBurnRate = BurnRateTracker(maxSampleAge: 5 * 3600)
+    let weeklyBurnRate  = BurnRateTracker(maxSampleAge: 7 * 24 * 3600)
+    let sonnetBurnRate  = BurnRateTracker(maxSampleAge: 7 * 24 * 3600)
+    let designBurnRate  = BurnRateTracker(maxSampleAge: 7 * 24 * 3600)
 
     var sessionUtilization: Int {
         usage?.fiveHour?.utilization ?? 0
@@ -126,7 +129,7 @@ class UsageState: ObservableObject {
         usage?.fiveHour?.timeUntilReset ?? "N/A"
     }
 
-    /// Projected utilization (%) at the 5h window reset. Same unit as Anthropic's
+    /// Projected utilization (%) at the bucket's reset. Same unit as Anthropic's
     /// `utilization` field. Returns nil when not enough samples or not consuming.
     var sessionProjectedUtilization: Int? {
         guard let resetDate = usage?.fiveHour?.resetDate else { return nil }
@@ -141,12 +144,27 @@ class UsageState: ObservableObject {
         usage?.sevenDay?.timeUntilReset ?? "N/A"
     }
 
+    var weeklyProjectedUtilization: Int? {
+        guard let resetDate = usage?.sevenDay?.resetDate else { return nil }
+        return weeklyBurnRate.projectedUtilization(at: resetDate)
+    }
+
     var sonnetUtilization: Int {
         usage?.sevenDaySonnet?.utilization ?? 0
     }
 
+    var sonnetProjectedUtilization: Int? {
+        guard let resetDate = usage?.sevenDaySonnet?.resetDate else { return nil }
+        return sonnetBurnRate.projectedUtilization(at: resetDate)
+    }
+
     var designUtilization: Int {
         usage?.sevenDayOmelette?.utilization ?? 0
+    }
+
+    var designProjectedUtilization: Int? {
+        guard let resetDate = usage?.sevenDayOmelette?.resetDate else { return nil }
+        return designBurnRate.projectedUtilization(at: resetDate)
     }
 
     var openRouterUtilization: Int {

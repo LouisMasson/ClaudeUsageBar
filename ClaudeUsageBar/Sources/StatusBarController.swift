@@ -204,8 +204,18 @@ class StatusBarController: NSObject {
             let usage = try await claudeResult
             usageState.usage = usage
             usageState.lastUpdated = Date()
+            // Record a sample per bucket so every indicator can project forward.
             if let util = usage.fiveHour?.utilization {
                 usageState.sessionBurnRate.record(utilization: util)
+            }
+            if let util = usage.sevenDay?.utilization {
+                usageState.weeklyBurnRate.record(utilization: util)
+            }
+            if let util = usage.sevenDaySonnet?.utilization {
+                usageState.sonnetBurnRate.record(utilization: util)
+            }
+            if let util = usage.sevenDayOmelette?.utilization {
+                usageState.designBurnRate.record(utilization: util)
             }
             updateStatusButton(
                 utilization: usage.fiveHour?.utilization ?? 0,

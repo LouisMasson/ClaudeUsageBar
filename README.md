@@ -6,14 +6,15 @@ A lightweight macOS menu bar app to monitor your Claude Max subscription usage i
 
 ## Features
 
-- **Menu bar indicator** showing current session usage percentage
+- **Menu bar indicator** showing current session usage percentage, plus a forward-looking projection at reset (e.g. `◐ 67% → 89%`)
+- **Burn-rate projection** on every bucket — linear projection of where utilization will land at the next reset, expressed in the same `%` unit Anthropic uses. Color-coded green / orange / red by projected value so you see at a glance whether you'll hit the limit before reset.
 - **Detailed popover** with all usage metrics:
-  - Session (5h) usage with reset countdown
-  - Weekly limits for all models
-  - Sonnet-only usage
-  - Claude Design usage
+  - Session (5h) usage with reset countdown and projection
+  - Weekly limits for all models (with projection when consumption is active)
+  - Sonnet-only usage (with projection)
+  - Claude Design usage (with projection)
   - **OpenRouter credits** (optional) — remaining balance + utilization bar
-- **Notch overlay** — hover the top of the screen to reveal a floating pill with session %, progress bar, and reset countdown. Sits right under the Mac notch (works on non-notched Macs too). Opt-in from Settings.
+- **Notch overlay** — hover the top of the screen to reveal a floating pill showing session %, projection, color-coded progress bar, and reset countdown. Sits right under the Mac notch (works on non-notched Macs too). Opt-in from Settings.
 - **Auto-refresh** every 5 minutes
 - **Secure storage** of credentials in macOS Keychain
 - **Launch at startup** support via LaunchAgent
@@ -84,6 +85,26 @@ saving also removes the key from your Keychain.
 - **Gear icon** to open settings
 - **X icon** to quit the app
 
+## Burn-rate projection
+
+Every bucket (Session 5h, Weekly all models, Sonnet, Claude Design) tracks a rolling window of samples and projects where utilization will land at its own reset. Same unit as Anthropic's API — percent — so nothing new to learn.
+
+**What you see:**
+- Menu bar: `◐ 67% → 89%` where `89%` is the projected value at reset
+- Popover: each row shows `→ N% au reset` under the reset timer
+- Notch pill: `67% →89%` inline
+
+**Color scale (driven by the projection, not the current value):**
+- Green: projected < 60%
+- Orange: projected 60–85%
+- Red: projected ≥ 85% (you will hit the limit before reset)
+
+**When it appears:** the projection shows only when there are at least 2 samples and a positive slope. If utilization is flat (you're not consuming), no projection is rendered — rather than showing noise. The session bucket usually gets its first projection after ~10 minutes of active use. Weekly buckets only show a projection when consumption is meaningful on the sampled window.
+
+**Mechanism:** per-bucket rolling sample buffer (up to 12 points), linear slope, projection to the bucket's `resetsAt`. Samples older than the bucket's reset window are purged automatically, so history never spans a missed reset (Mac sleep, app restart, etc.).
+
+Implementation: `BurnRateProjection.swift`. Self-contained, `@MainActor`, no external dependencies.
+
 ## Notch overlay
 
 A floating pill can appear under the Mac notch when the cursor enters a hot zone at the top of the screen — showing session %, a color-coded progress bar, and the reset countdown without having to click the menu bar icon.
@@ -120,6 +141,7 @@ ClaudeUsageBar/
         ├── ClaudeAPIService.swift         # claude.ai API client
         ├── OpenRouterAPIService.swift     # OpenRouter API client
         ├── KeychainHelper.swift           # Secure storage
+        ├── BurnRateProjection.swift       # Per-bucket burn-rate tracker + linear projection
         ├── NotchOverlayController.swift   # Notch hover overlay (panel + mouse monitor)
         └── NotchOverlayView.swift         # SwiftUI pill rendered in the overlay
 ```

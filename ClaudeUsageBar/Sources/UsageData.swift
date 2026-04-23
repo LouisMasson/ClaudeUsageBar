@@ -27,6 +27,27 @@ struct UsageLimit: Codable {
         case resetsAt = "resets_at"
     }
 
+    // Tolerate missing / null / differently-typed fields from the claude.ai
+    // response (Anthropic has renamed fields before without notice).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let intValue = try? c.decodeIfPresent(Int.self, forKey: .utilization) {
+            self.utilization = intValue
+        } else if let doubleValue = try? c.decodeIfPresent(Double.self, forKey: .utilization) {
+            self.utilization = Int(doubleValue)
+        } else {
+            self.utilization = 0
+        }
+        self.resetsAt = (try? c.decodeIfPresent(String.self, forKey: .resetsAt)) ?? ""
+    }
+
+    // Retain the default synthesized Encodable by explicitly providing encode.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(utilization, forKey: .utilization)
+        try c.encode(resetsAt, forKey: .resetsAt)
+    }
+
     var resetDate: Date? {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -67,6 +88,22 @@ struct ExtraUsage: Codable {
         case monthlyLimit = "monthly_limit"
         case usedCredits = "used_credits"
         case utilization
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.isEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .isEnabled)) ?? false
+        self.monthlyLimit = (try? c.decodeIfPresent(Int.self, forKey: .monthlyLimit)) ?? 0
+        self.usedCredits = (try? c.decodeIfPresent(Int.self, forKey: .usedCredits)) ?? 0
+        self.utilization = (try? c.decodeIfPresent(Double.self, forKey: .utilization)) ?? 0
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(isEnabled, forKey: .isEnabled)
+        try c.encode(monthlyLimit, forKey: .monthlyLimit)
+        try c.encode(usedCredits, forKey: .usedCredits)
+        try c.encode(utilization, forKey: .utilization)
     }
 }
 

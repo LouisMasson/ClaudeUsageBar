@@ -31,13 +31,50 @@ actor ClaudeAPIService {
         switch httpResponse.statusCode {
         case 200:
             let decoder = JSONDecoder()
-            return try decoder.decode(UsageResponse.self, from: data)
+            do {
+                return try decoder.decode(UsageResponse.self, from: data)
+            } catch {
+                // Dump the raw body + decoding error to stderr so users running
+                // from the terminal can see what claude.ai actually returned
+                // when the shape changes.
+                let rawBody = String(data: data, encoding: .utf8) ?? "<non-utf8 body, \(data.count) bytes>"
+                FileHandle.standardError.write(Data("""
+                [ClaudeAPIService] JSON decode failed: \(error)
+                [ClaudeAPIService] Raw response body:
+                \(rawBody)
+
+                """.utf8))
+                throw APIError.decodingError(Self.describe(decodingError: error))
+            }
         case 401, 403:
             throw APIError.unauthorized
         case 429:
             throw APIError.rateLimited
         default:
             throw APIError.serverError(httpResponse.statusCode)
+        }
+    }
+
+    /// Turns a `DecodingError` into a short, user-friendly string (the default
+    /// `localizedDescription` is just "The data couldn't be read because it is
+    /// missing", which hides the actual problem).
+    private static func describe(decodingError error: Error) -> String {
+        guard let decodingError = error as? DecodingError else {
+            return error.localizedDescription
+        }
+        switch decodingError {
+        case .keyNotFound(let key, let ctx):
+            return "clé manquante \"\(key.stringValue)\" — \(ctx.debugDescription)"
+        case .valueNotFound(let type, let ctx):
+            let path = ctx.codingPath.map(\.stringValue).joined(separator: ".")
+            return "valeur \(type) nulle à \"\(path)\""
+        case .typeMismatch(let type, let ctx):
+            let path = ctx.codingPath.map(\.stringValue).joined(separator: ".")
+            return "type \(type) attendu à \"\(path)\""
+        case .dataCorrupted(let ctx):
+            return "données corrompues — \(ctx.debugDescription)"
+        @unknown default:
+            return decodingError.localizedDescription
         }
     }
 }

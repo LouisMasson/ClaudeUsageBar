@@ -246,8 +246,9 @@ class StatusBarController: NSObject {
     private func startAutoRefresh() {
         // Refresh every 5 minutes
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            guard let self else { return }
             Task { @MainActor in
-                await self?.refreshUsage()
+                await self.refreshUsage()
             }
         }
     }

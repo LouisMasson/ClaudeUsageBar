@@ -1,5 +1,7 @@
 # Claude Usage Bar
 
+**[🌐 Website](https://claudeusagebar.louismasson.me)** · **[⬇️ Download .dmg](https://github.com/LouisMasson/ClaudeUsageBar/releases/latest)**
+
 A lightweight macOS menu bar app to monitor your Claude Max subscription usage in real-time.
 
 ![Claude Usage Bar Screenshot](assets/screenshot.png)

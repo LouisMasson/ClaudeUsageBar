@@ -33,7 +33,7 @@ class StatusBarController: NSObject {
 
     private func setupPopover() {
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 280, height: 350)
+        popover.contentSize = NSSize(width: 280, height: 470)
         popover.behavior = .transient
         popover.animates = true
 
@@ -97,10 +97,11 @@ class StatusBarController: NSObject {
         settingsState.orgId = KeychainHelper.load(.organizationId) ?? ""
         settingsState.cookie = KeychainHelper.load(.sessionCookie) ?? ""
         settingsState.openRouterKey = KeychainHelper.load(.openRouterAPIKey) ?? ""
+        settingsState.clineSessionCookie = KeychainHelper.load(.clineSessionCookie) ?? ""
         settingsState.notchOverlayEnabled = UserDefaults.standard.bool(forKey: SettingsState.notchOverlayKey)
 
         settingsPopover = NSPopover()
-        settingsPopover.contentSize = NSSize(width: 320, height: 340)
+        settingsPopover.contentSize = NSSize(width: 320, height: 420)
         settingsPopover.behavior = .applicationDefined  // Ne se ferme pas automatiquement
         settingsPopover.animates = true
 
@@ -125,6 +126,7 @@ class StatusBarController: NSObject {
         let orgId = settingsState.orgId.trimmingCharacters(in: .whitespacesAndNewlines)
         let cookie = settingsState.cookie.trimmingCharacters(in: .whitespacesAndNewlines)
         let openRouterKey = settingsState.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clineCookie = settingsState.clineSessionCookie.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !orgId.isEmpty, !cookie.isEmpty else {
             return
@@ -138,6 +140,13 @@ class StatusBarController: NSObject {
             KeychainHelper.delete(.openRouterAPIKey)
         } else {
             _ = KeychainHelper.save(openRouterKey, for: .openRouterAPIKey)
+        }
+
+        // Cline Pass session cookie is optional — empty field removes any existing key.
+        if clineCookie.isEmpty {
+            KeychainHelper.delete(.clineSessionCookie)
+        } else {
+            _ = KeychainHelper.save(clineCookie, for: .clineSessionCookie)
         }
 
         UserDefaults.standard.set(settingsState.notchOverlayEnabled, forKey: SettingsState.notchOverlayKey)
@@ -183,8 +192,9 @@ class StatusBarController: NSObject {
         usageState.error = nil
 
         let openRouterKey = KeychainHelper.load(.openRouterAPIKey)
+        let clineCookie = KeychainHelper.load(.clineSessionCookie)
 
-        // Fire both requests concurrently.
+        // Fire all requests concurrently.
         async let claudeResult = ClaudeAPIService.shared.fetchUsage(
             organizationId: orgId,
             sessionKey: cookie
@@ -194,6 +204,15 @@ class StatusBarController: NSObject {
             do {
                 let credits = try await OpenRouterAPIService.shared.fetchCredits(apiKey: key)
                 return .success(credits)
+            } catch {
+                return .failure(error)
+            }
+        }()
+        async let clineResult: Result<ClineUsageResponse, Error>? = {
+            guard let cookie = clineCookie else { return nil }
+            do {
+                let usage = try await ClineAPIService.shared.fetchUsage(sessionCookie: cookie)
+                return .success(usage)
             } catch {
                 return .failure(error)
             }
@@ -238,6 +257,29 @@ class StatusBarController: NSObject {
         case .failure(let error):
             usageState.openRouterCredits = nil
             usageState.openRouterError = error.localizedDescription
+        }
+
+        // Cline Pass (optional) — isolated from Claude's state.
+        switch await clineResult {
+        case .none:
+            usageState.clineUsage = nil
+            usageState.clineError = nil
+        case .success(let usage):
+            usageState.clineUsage = usage
+            usageState.clineError = nil
+            // Record a sample per rolling window so every indicator can project forward.
+            if let util = usage.fiveHour?.percentUsed {
+                usageState.clineFiveHourBurnRate.record(utilization: util)
+            }
+            if let util = usage.weekly?.percentUsed {
+                usageState.clineWeeklyBurnRate.record(utilization: util)
+            }
+            if let util = usage.monthly?.percentUsed {
+                usageState.clineMonthlyBurnRate.record(utilization: util)
+            }
+        case .failure(let error):
+            usageState.clineUsage = nil
+            usageState.clineError = error.localizedDescription
         }
 
         usageState.isLoading = false

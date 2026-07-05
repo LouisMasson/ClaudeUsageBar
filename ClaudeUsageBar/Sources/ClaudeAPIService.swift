@@ -58,7 +58,10 @@ actor ClaudeAPIService {
     /// Turns a `DecodingError` into a short, user-friendly string (the default
     /// `localizedDescription` is just "The data couldn't be read because it is
     /// missing", which hides the actual problem).
-    private static func describe(decodingError error: Error) -> String {
+    ///
+    /// Internal (not private) so the other API services (`ClineAPIService`) can reuse
+    /// the exact same diagnostic formatting instead of duplicating it.
+    static func describe(decodingError error: Error) -> String {
         guard let decodingError = error as? DecodingError else {
             return error.localizedDescription
         }

@@ -8,6 +8,7 @@ enum KeychainHelper {
         case sessionCookie = "claude_session_cookie"
         case organizationId = "claude_organization_id"
         case openRouterAPIKey = "openrouter_api_key"
+        case clineSessionCookie = "cline_session_cookie"
     }
 
     static func save(_ value: String, for key: Key) -> Bool {

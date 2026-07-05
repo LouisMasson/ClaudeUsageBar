@@ -138,6 +138,42 @@ struct UsageDetailsView: View {
                         .foregroundColor(.red)
                 }
             }
+
+            // Cline Pass — only rendered when a cookie is configured and at least
+            // one fetch has completed (success or failure).
+            if usageState.clineUsage != nil || usageState.clineError != nil {
+                Text("CLINE PASS")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 4)
+
+                if usageState.clineUsage != nil {
+                    UsageRow(
+                        title: "Session (5h)",
+                        utilization: usageState.clineFiveHourUtilization,
+                        resetTime: usageState.clineFiveHourResetTime,
+                        projectedAtReset: usageState.clineFiveHourProjectedUtilization
+                    )
+
+                    UsageRow(
+                        title: "Hebdomadaire",
+                        utilization: usageState.clineWeeklyUtilization,
+                        resetTime: usageState.clineWeeklyResetTime,
+                        projectedAtReset: usageState.clineWeeklyProjectedUtilization
+                    )
+
+                    UsageRow(
+                        title: "Mensuel",
+                        utilization: usageState.clineMonthlyUtilization,
+                        resetTime: usageState.clineMonthlyResetTime,
+                        projectedAtReset: usageState.clineMonthlyProjectedUtilization
+                    )
+                } else if let error = usageState.clineError {
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundColor(.red)
+                }
+            }
         }
     }
 }
@@ -267,6 +303,20 @@ struct SettingsViewWrapper: View {
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.caption, design: .monospaced))
                 Text("Laissez vide pour désactiver l'affichage OpenRouter.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Cline Pass (optionnel)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("cline_session_id=...", text: $settingsState.clineSessionCookie)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+                Text("Collez le cookie `cline_session_id=...` depuis app.cline.bot. Laissez vide pour désactiver.")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }

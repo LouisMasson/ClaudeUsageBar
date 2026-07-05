@@ -80,6 +80,24 @@ can display your remaining credits alongside Claude usage.
 Leave this field empty to hide the OpenRouter section entirely. Clearing it and
 saving also removes the key from your Keychain.
 
+### 4. Cline Pass *(optional)*
+
+If you have a [Cline Pass](https://cline.bot/pricing) subscription, the app can
+display your three rolling usage limits — **5-hour**, **weekly**, and **monthly** —
+in percentages alongside your Claude usage.
+
+1. Go to [app.cline.bot/dashboard/activity](https://app.cline.bot/dashboard/activity)
+   and sign in
+2. Open DevTools (`Cmd+Option+I`) → **Network** tab → filter by **Fetch/XHR**
+3. Reload the page
+4. Look for the request to `https://api.cline.bot/api/v1/users/me/plan/usage-limits`
+5. In the **Headers** tab, find **Request Headers** > **Cookie**
+6. Copy the whole `cline_session_id=...` value (just that cookie is enough) into the
+   **"Cline Pass"** field in settings
+
+Leave this field empty to hide the Cline Pass section entirely. Clearing it and
+saving also removes the cookie from your Keychain.
+
 ## Usage
 
 - **Click** on the menu bar icon to see detailed usage
@@ -145,6 +163,7 @@ ClaudeUsageBar/
         ├── PopoverView.swift              # SwiftUI views
         ├── UsageData.swift                # Data models
         ├── ClaudeAPIService.swift         # claude.ai API client
+        ├── ClineAPIService.swift          # Cline Pass API client
         ├── OpenRouterAPIService.swift     # OpenRouter API client
         ├── KeychainHelper.swift           # Secure storage
         ├── BurnRateProjection.swift       # Per-bucket burn-rate tracker + linear projection
@@ -154,11 +173,12 @@ ClaudeUsageBar/
 
 ## Privacy & Security
 
-- Credentials (Claude session cookie, OpenRouter API key) are stored securely in macOS Keychain
+- Credentials (Claude session cookie, OpenRouter API key, Cline Pass session cookie) are stored securely in macOS Keychain
 - No data is sent to third parties
-- The app only communicates with `claude.ai` and, if configured, `openrouter.ai`
+- The app only communicates with `claude.ai`, `api.cline.bot`, and, if configured, `openrouter.ai`
 - Session cookies expire after ~30 days and need to be refreshed
 - The OpenRouter key is only used to call `GET /api/v1/credits` (read-only balance lookup)
+- The Cline Pass cookie is only used to call `GET /api/v1/users/me/plan/usage-limits` (read-only usage lookup)
 
 ## License
 

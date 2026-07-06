@@ -11,11 +11,12 @@ import UserNotifications
 /// 2. **Cookie expired** — fired when any API returns 401/403. Once per "session"
 ///    of being expired; re-arms when a refresh succeeds.
 ///
-/// Not annotated `@MainActor` to avoid a release-build (`-O`) optimizer crash
-/// (NULL function pointer dispatch). All call sites are already on the main
-/// actor (`StatusBarController` is `@MainActor`), so threading is unchanged —
-/// this just prevents the optimizer from making incorrect assumptions about
-/// actor isolation that caused `EXC_BAD_ACCESS / rip=0` segfaults.
+/// **Bundle requirement:** `UNUserNotificationCenter` crashes with an internal
+/// `NSAssertionHandler` failure (which surfaces as `EXC_BAD_ACCESS / SIGSEGV`) when
+/// the app has no `CFBundleIdentifier` — i.e. when the raw SwiftPM executable is
+/// launched directly instead of from a `.app` bundle. To stay crash-free in both
+/// contexts, every method checks `notificationsEnabled` (which verifies a valid
+/// bundle identifier exists) and silently no-ops when the app runs outside a bundle.
 final class NotificationManager {
     static let shared = NotificationManager()
     private init() {}
@@ -24,6 +25,13 @@ final class NotificationManager {
 
     private let criticalThreshold = 90
     private let clearThreshold = 80
+
+    /// Returns `true` only when the app is running inside a proper `.app` bundle
+    /// (i.e. `Bundle.main.bundleIdentifier` is set). `UNUserNotificationCenter`
+    /// asserts/crashes without a bundle identifier, so we gate every call on this.
+    private var notificationsEnabled: Bool {
+        Bundle.main.bundleIdentifier != nil
+    }
 
     // MARK: - Dedup state
 
@@ -37,22 +45,27 @@ final class NotificationManager {
 
     /// Requests notification authorization. Called once at app launch (deferred).
     /// macOS shows the system permission prompt on first call; subsequent calls
-    /// are no-ops if the user already granted/denied. Wrapped in a try/catch and
-    /// a nil-coalesced guard so it can never crash the app.
+    /// are no-ops if the user already granted/denied. Silently skipped when the
+    /// app is not running inside a `.app` bundle (raw executable has no bundle id).
     func requestPermission() {
+        guard notificationsEnabled else { return }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
     /// Evaluates 5-hour session utilization for Claude and Cline. Fires a critical
-    /// notification when a bucket crosses 90%, with dedup per bucket.
+    /// notification when a bucket crosses 90%, with dedup per bucket. No-ops when
+    /// the app is not running inside a `.app` bundle.
     func checkCriticalThreshold(claude5h: Int, cline5h: Int) {
+        guard notificationsEnabled else { return }
         evaluate(bucket: "claude_5h", utilization: claude5h, label: "Claude — Session (5h)")
         evaluate(bucket: "cline_5h", utilization: cline5h, label: "Cline Pass — Session (5h)")
     }
 
     /// Fires a cookie-expired notification (once per outage). Re-armed by
     /// `clearCookieExpired()`, which should be called when a refresh succeeds.
+    /// No-ops when the app is not running inside a `.app` bundle.
     func notifyCookieExpired(service: String) {
+        guard notificationsEnabled else { return }
         guard !cookieExpiredNotified else { return }
         cookieExpiredNotified = true
 

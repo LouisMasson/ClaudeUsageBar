@@ -188,12 +188,7 @@ struct UsageRow: View {
 
     /// Color driven by projection when present (forward-looking), else current utilization.
     var barColor: Color {
-        let reference = projectedAtReset ?? utilization
-        switch reference {
-        case ..<60:  return .green
-        case ..<85:  return .orange
-        default:     return .red
-        }
+        UsagePalette.color(for: projectedAtReset ?? utilization)
     }
 
     var body: some View {
@@ -243,9 +238,9 @@ struct CreditsRow: View {
     let remainingLabel: String
 
     // Muted green — `.green` is too bright against the popover background, so we
-    // use a darker, less saturated shade that reads as "positive balance" without
+    // use the shared palette shade that reads as "positive balance" without
     // flashing.
-    private let creditColor = Color(red: 0.18, green: 0.52, blue: 0.33)
+    private let creditColor = UsagePalette.green
 
     var body: some View {
         HStack {

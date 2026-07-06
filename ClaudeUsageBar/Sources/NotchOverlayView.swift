@@ -60,11 +60,6 @@ struct NotchOverlayView: View {
     /// Color driven by projection when available (forward-looking), otherwise by
     /// current utilization. Mirrors the menu bar and popover palette.
     private var tintColor: Color {
-        let reference = usageState.sessionProjectedUtilization ?? usageState.sessionUtilization
-        switch reference {
-        case ..<60:  return .green
-        case ..<85:  return .orange
-        default:     return .red
-        }
+        UsagePalette.color(for: usageState.sessionProjectedUtilization ?? usageState.sessionUtilization)
     }
 }

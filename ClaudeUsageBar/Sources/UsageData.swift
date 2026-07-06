@@ -215,6 +215,49 @@ extension ClineUsageResponse {
     var monthly: ClineLimit? { data.limits.first { $0.type == "monthly" } }
 }
 
+// MARK: - Shared UI palette
+
+import SwiftUI
+import AppKit
+
+/// Shared color palette for all utilization indicators across the app.
+///
+/// `.green` / `.systemGreen` are too bright/flashy against the popover and notch
+/// backgrounds, so we use a darker, less saturated shade that reads as "healthy"
+/// without being jarring. Orange and red stay close to the system tints but are
+/// slightly muted for visual consistency with the green.
+enum UsagePalette {
+    /// Muted green — "everything is fine" (< 60%).
+    static let green = Color(red: 0.18, green: 0.52, blue: 0.33)
+    /// Muted orange — "getting close" (60–85%).
+    static let orange = Color(red: 0.78, green: 0.45, blue: 0.13)
+    /// Muted red — "will hit the limit" (≥ 85%).
+    static let red = Color(red: 0.72, green: 0.20, blue: 0.18)
+
+    /// AppKit equivalents (for the menu bar `NSStatusItem`, which uses `NSColor`).
+    static let greenNS = NSColor(srgbRed: 0.18, green: 0.52, blue: 0.33, alpha: 1)
+    static let orangeNS = NSColor(srgbRed: 0.78, green: 0.45, blue: 0.13, alpha: 1)
+    static let redNS = NSColor(srgbRed: 0.72, green: 0.20, blue: 0.18, alpha: 1)
+
+    /// SwiftUI color for a given utilization reference (projection or current).
+    static func color(for reference: Int) -> Color {
+        switch reference {
+        case ..<60:  return green
+        case ..<85:  return orange
+        default:     return red
+        }
+    }
+
+    /// AppKit color for a given utilization reference (projection or current).
+    static func nsColor(for reference: Int) -> NSColor {
+        switch reference {
+        case ..<60:  return greenNS
+        case ..<85:  return orangeNS
+        default:     return redNS
+        }
+    }
+}
+
 // MARK: - App State
 
 class SettingsState: ObservableObject {

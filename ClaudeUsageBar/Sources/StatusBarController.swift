@@ -56,15 +56,10 @@ class StatusBarController: NSObject {
         guard let button = statusItem.button else { return }
 
         // Color driven by the projection when available (forward-looking), otherwise
-        // by current utilization. Thresholds mirror the notch pill so the UI stays consistent.
+        // by current utilization. Uses the shared muted palette so the menu bar,
+        // popover, and notch pill all stay consistent.
         let reference = projected ?? utilization
-        let color: NSColor = {
-            switch reference {
-            case ..<60:  return .systemGreen
-            case ..<85:  return .systemOrange
-            default:     return .systemRed
-            }
-        }()
+        let color = UsagePalette.nsColor(for: reference)
 
         // Only the icon is shown in the menu bar — no percentage text. The color
         // still conveys the utilization level at a glance (green/orange/red).

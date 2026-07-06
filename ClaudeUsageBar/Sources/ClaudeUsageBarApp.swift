@@ -21,10 +21,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize status bar first so the menu bar icon appears immediately.
         statusBarController = StatusBarController()
 
-        // Request notification authorization on the next run-loop tick, once the
-        // app is fully initialized (avoids a startup crash when the system prompts
-        // for notification permission before the run loop is ready).
-        DispatchQueue.main.async {
+        // Request notification authorization after a short delay. Accessing
+        // `UNUserNotificationCenter` too early in the launch sequence (before the
+        // app's run loop is fully spun up) causes a segfault in release builds
+        // due to the optimizer. Deferring by 1s ensures everything is ready.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             NotificationManager.shared.requestPermission()
         }
     }

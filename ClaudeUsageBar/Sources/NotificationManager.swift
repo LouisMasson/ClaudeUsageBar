@@ -30,9 +30,10 @@ final class NotificationManager {
 
     // MARK: - Public API
 
-    /// Requests notification authorization. Called once at app launch. macOS shows
-    /// the system permission prompt on first call; subsequent calls are no-ops if
-    /// the user already granted/denied.
+    /// Requests notification authorization. Called once at app launch (deferred).
+    /// macOS shows the system permission prompt on first call; subsequent calls
+    /// are no-ops if the user already granted/denied. Wrapped in a try/catch and
+    /// a nil-coalesced guard so it can never crash the app.
     func requestPermission() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }

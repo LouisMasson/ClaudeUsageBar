@@ -283,6 +283,15 @@ class UsageState: ObservableObject {
     @Published var clineUsage: ClineUsageResponse?
     @Published var clineError: String?
 
+    /// True when Claude's API returned 401/403 — the popover swaps to a
+    /// "session expired" view with a shortcut to Settings.
+    @Published var cookieExpired = false
+
+    /// True when a refresh failed due to a transient error (network/5xx) **but**
+    /// we still have cached data to display. The popover shows a discrete
+    /// "Hors ligne" badge instead of replacing the data with an error banner.
+    @Published var isOffline = false
+
     // Cline Pass burn-rate trackers — one per rolling window. Window size matches
     // the bucket's reset cadence so the sample history never straddles a reset.
     let clineFiveHourBurnRate = BurnRateTracker(maxSampleAge: 5 * 3600)

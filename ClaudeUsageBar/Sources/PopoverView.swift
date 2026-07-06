@@ -15,7 +15,16 @@ struct PopoverView: View {
                 Text("Claude Usage")
                     .font(.headline)
                 Spacer()
-                if usageState.isLoading {
+                if usageState.isOffline {
+                    // Discrete offline badge — keeps the cached data visible rather
+                    // than replacing everything with an error banner.
+                    Text("Hors ligne")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                } else if usageState.isLoading {
                     ProgressView()
                         .scaleEffect(0.7)
                 }
@@ -23,7 +32,9 @@ struct PopoverView: View {
 
             Divider()
 
-            if let error = usageState.error {
+            if usageState.cookieExpired {
+                CookieExpiredView(onSettings: onSettings)
+            } else if let error = usageState.error {
                 ErrorView(message: error, onRetry: onRefresh)
             } else if usageState.usage != nil {
                 UsageDetailsView(usageState: usageState)
@@ -271,6 +282,34 @@ struct ErrorView: View {
 
             Button("Reessayer", action: onRetry)
                 .buttonStyle(.bordered)
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+    }
+}
+
+/// Shown when the Claude session cookie has expired (401/403). Offers a direct
+/// shortcut to Settings so the user can paste a fresh cookie without hunting for
+/// the gear icon.
+struct CookieExpiredView: View {
+    let onSettings: () -> Void
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "lock.rotation")
+                .foregroundColor(UsagePalette.orange)
+                .font(.title2)
+
+            Text("Session expirée")
+                .font(.body.bold())
+
+            Text("Votre cookie de session n'est plus valide. Ouvrez les réglages pour le mettre à jour.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+
+            Button("Ouvrir les réglages", action: onSettings)
+                .buttonStyle(.borderedProminent)
         }
         .frame(maxWidth: .infinity)
         .padding()

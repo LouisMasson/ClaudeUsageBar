@@ -18,6 +18,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Hide dock icon
         NSApp.setActivationPolicy(.accessory)
 
+        // Request notification authorization for critical-threshold and
+        // cookie-expired alerts.
+        NotificationManager.shared.requestPermission()
+
         // Initialize status bar
         statusBarController = StatusBarController()
     }

@@ -203,11 +203,15 @@ class StatusBarController: NSObject {
             }
         }()
 
-        // Claude (primary) — errors populate the main error banner.
+        // Claude (primary) — errors are triaged into cookie-expired / offline /
+        // hard-error so the UI can react appropriately.
         do {
             let usage = try await claudeResult
             usageState.usage = usage
             usageState.lastUpdated = Date()
+            usageState.cookieExpired = false
+            usageState.isOffline = false
+            NotificationManager.shared.clearCookieExpired()
             // Record a sample per bucket so every indicator can project forward.
             if let util = usage.fiveHour?.utilization {
                 usageState.sessionBurnRate.record(utilization: util)
@@ -226,9 +230,13 @@ class StatusBarController: NSObject {
                 projected: usageState.sessionProjectedUtilization
             )
             notchOverlay.refresh()
+            // Critical-threshold notification (90% on the 5h session).
+            NotificationManager.shared.checkCriticalThreshold(
+                claude5h: usage.fiveHour?.utilization ?? 0,
+                cline5h: usageState.clineFiveHourUtilization
+            )
         } catch {
-            usageState.error = error.localizedDescription
-            updateStatusButton(utilization: 0)
+            handleClaudeError(error)
         }
 
         // OpenRouter (optional) — isolated from Claude's state.
@@ -242,6 +250,9 @@ class StatusBarController: NSObject {
         case .failure(let error):
             usageState.openRouterCredits = nil
             usageState.openRouterError = error.localizedDescription
+            if case APIError.unauthorized = error {
+                NotificationManager.shared.notifyCookieExpired(service: "OpenRouter")
+            }
         }
 
         // Cline Pass (optional) — isolated from Claude's state.
@@ -262,12 +273,51 @@ class StatusBarController: NSObject {
             if let util = usage.monthly?.percentUsed {
                 usageState.clineMonthlyBurnRate.record(utilization: util)
             }
+            // Re-evaluate critical threshold now that Cline 5h is fresh.
+            NotificationManager.shared.checkCriticalThreshold(
+                claude5h: usageState.sessionUtilization,
+                cline5h: usage.fiveHour?.percentUsed ?? 0
+            )
         case .failure(let error):
             usageState.clineUsage = nil
             usageState.clineError = error.localizedDescription
+            if case APIError.unauthorized = error {
+                NotificationManager.shared.notifyCookieExpired(service: "Cline Pass")
+            }
         }
 
         usageState.isLoading = false
+    }
+
+    /// Triages a Claude API error into one of three UI states:
+    /// - **Cookie expired (401/403)** → `cookieExpired = true`, popover shows a
+    ///   "session expired" view with a shortcut to Settings.
+    /// - **Transient error (network/5xx) + cached data** → `isOffline = true`,
+    ///   popover keeps showing the last known values with a discrete badge.
+    /// - **Transient error + no cache** → `error` message, ErrorView is shown.
+    private func handleClaudeError(_ error: Error) {
+        if case APIError.unauthorized = error {
+            usageState.cookieExpired = true
+            usageState.isOffline = false
+            usageState.error = nil
+            NotificationManager.shared.notifyCookieExpired(service: "Claude")
+            updateStatusButton(utilization: 0)
+            return
+        }
+
+        // Transient (network / 5xx / invalid response).
+        if usageState.usage != nil {
+            // We have cached data — keep it, flag as offline.
+            usageState.isOffline = true
+            usageState.cookieExpired = false
+            usageState.error = nil
+        } else {
+            // No cache yet — show the error banner.
+            usageState.isOffline = false
+            usageState.cookieExpired = false
+            usageState.error = error.localizedDescription
+        }
+        updateStatusButton(utilization: usageState.sessionUtilization)
     }
 
     private func startAutoRefresh() {

@@ -18,44 +18,46 @@ actor ClineAPIService {
     private init() {}
 
     func fetchUsage(sessionCookie: String) async throws -> ClineUsageResponse {
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "GET"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("https://app.cline.bot", forHTTPHeaderField: "Origin")
-        request.setValue("https://app.cline.bot/", forHTTPHeaderField: "Referer")
-        request.setValue(sessionCookie, forHTTPHeaderField: "Cookie")
-        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
+        try await NetworkRetry.retry {
+            var request = URLRequest(url: endpoint)
+            request.httpMethod = "GET"
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.setValue("https://app.cline.bot", forHTTPHeaderField: "Origin")
+            request.setValue("https://app.cline.bot/", forHTTPHeaderField: "Referer")
+            request.setValue(sessionCookie, forHTTPHeaderField: "Cookie")
+            request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw APIError.invalidResponse
-        }
-
-        switch httpResponse.statusCode {
-        case 200:
-            let decoder = JSONDecoder()
-            do {
-                return try decoder.decode(ClineUsageResponse.self, from: data)
-            } catch {
-                // Dump the raw body + decoding error to stderr so users running
-                // from the terminal can see what cline.bot actually returned
-                // when the shape changes.
-                let rawBody = String(data: data, encoding: .utf8) ?? "<non-utf8 body, \(data.count) bytes>"
-                FileHandle.standardError.write(Data("""
-                [ClineAPIService] JSON decode failed: \(error)
-                [ClineAPIService] Raw response body:
-                \(rawBody)
-
-                """.utf8))
-                throw APIError.decodingError(ClaudeAPIService.describe(decodingError: error))
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw APIError.invalidResponse
             }
-        case 401, 403:
-            throw APIError.unauthorized
-        case 429:
-            throw APIError.rateLimited
-        default:
-            throw APIError.serverError(httpResponse.statusCode)
+
+            switch httpResponse.statusCode {
+            case 200:
+                let decoder = JSONDecoder()
+                do {
+                    return try decoder.decode(ClineUsageResponse.self, from: data)
+                } catch {
+                    // Dump the raw body + decoding error to stderr so users running
+                    // from the terminal can see what cline.bot actually returned
+                    // when the shape changes.
+                    let rawBody = String(data: data, encoding: .utf8) ?? "<non-utf8 body, \(data.count) bytes>"
+                    FileHandle.standardError.write(Data("""
+                    [ClineAPIService] JSON decode failed: \(error)
+                    [ClineAPIService] Raw response body:
+                    \(rawBody)
+
+                    """.utf8))
+                    throw APIError.decodingError(ClaudeAPIService.describe(decodingError: error))
+                }
+            case 401, 403:
+                throw APIError.unauthorized
+            case 429:
+                throw APIError.rateLimited
+            default:
+                throw APIError.serverError(httpResponse.statusCode)
+            }
         }
     }
 }

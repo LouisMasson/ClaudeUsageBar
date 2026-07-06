@@ -129,8 +129,7 @@ struct UsageDetailsView: View {
                 if usageState.openRouterCredits != nil {
                     CreditsRow(
                         title: "Crédits",
-                        remainingLabel: usageState.openRouterRemainingLabel,
-                        totalLabel: usageState.openRouterTotalLabel
+                        remainingLabel: usageState.openRouterRemainingLabel
                     )
                 } else if let error = usageState.openRouterError {
                     Text(error)
@@ -236,28 +235,26 @@ struct UsageRow: View {
     }
 }
 
-/// Compact row for displaying a credit balance (remaining + total) instead of a
+/// Compact row for displaying a credit balance (remaining only) instead of a
 /// percentage. Used by the OpenRouter section so it shows the actual dollar
 /// amount left rather than a utilization bar.
 struct CreditsRow: View {
     let title: String
     let remainingLabel: String
-    let totalLabel: String
+
+    // Muted green — `.green` is too bright against the popover background, so we
+    // use a darker, less saturated shade that reads as "positive balance" without
+    // flashing.
+    private let creditColor = Color(red: 0.18, green: 0.52, blue: 0.33)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(title)
-                    .font(.body)
-                Spacer()
-                Text(remainingLabel)
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundColor(.green)
-            }
-
-            Text(totalLabel)
-                .font(.caption)
-                .foregroundColor(.secondary)
+        HStack {
+            Text(title)
+                .font(.body)
+            Spacer()
+            Text(remainingLabel)
+                .font(.system(.body, design: .monospaced))
+                .foregroundColor(creditColor)
         }
     }
 }

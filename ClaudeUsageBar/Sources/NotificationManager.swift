@@ -10,7 +10,12 @@ import UserNotifications
 ///    it re-arms when utilization drops back below 80% (i.e. a reset occurred).
 /// 2. **Cookie expired** — fired when any API returns 401/403. Once per "session"
 ///    of being expired; re-arms when a refresh succeeds.
-@MainActor
+///
+/// Not annotated `@MainActor` to avoid a release-build (`-O`) optimizer crash
+/// (NULL function pointer dispatch). All call sites are already on the main
+/// actor (`StatusBarController` is `@MainActor`), so threading is unchanged —
+/// this just prevents the optimizer from making incorrect assumptions about
+/// actor isolation that caused `EXC_BAD_ACCESS / rip=0` segfaults.
 final class NotificationManager {
     static let shared = NotificationManager()
     private init() {}

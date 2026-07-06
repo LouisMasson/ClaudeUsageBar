@@ -101,7 +101,7 @@ enum APIError: LocalizedError {
         case .unauthorized:
             return "Session expiree - Mettez a jour vos cookies"
         case .rateLimited:
-            return "Trop de requetes - Reessayez plus tard"
+            return "Claude limite temporairement les requetes — nouvel essai dans 5 min"
         case .serverError(let code):
             return "Erreur serveur: \(code)"
         case .decodingError(let message):

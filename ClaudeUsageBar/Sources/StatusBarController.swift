@@ -66,13 +66,10 @@ class StatusBarController: NSObject {
             }
         }()
 
-        let icon = "◐"
-        let text: String
-        if let projected = projected {
-            text = "\(icon) \(utilization)% → \(projected)%"
-        } else {
-            text = "\(icon) \(utilization)%"
-        }
+        // Only the icon is shown in the menu bar — no percentage text. The color
+        // still conveys the utilization level at a glance (green/orange/red).
+        // Detailed numbers live in the popover.
+        let text = "◐"
 
         let attributed = NSMutableAttributedString(string: text)
         attributed.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: text.count))

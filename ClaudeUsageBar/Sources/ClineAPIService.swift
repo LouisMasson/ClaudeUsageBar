@@ -9,7 +9,7 @@ import Foundation
 /// Endpoint: `GET https://api.cline.bot/api/v1/users/me/plan/usage-limits`
 /// Auth: session cookie (`cline_session_id=...`) sent via the `Cookie` header — the same
 /// mechanism the web dashboard at app.cline.bot uses. The cookie is stored securely in
-/// the macOS Keychain (see `KeychainHelper.Key.clineSessionCookie`).
+/// the macOS Keychain (see `KeychainHelper.Credentials.clineSessionCookie`).
 actor ClineAPIService {
     static let shared = ClineAPIService()
 

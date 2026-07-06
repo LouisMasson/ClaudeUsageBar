@@ -55,15 +55,11 @@ class StatusBarController: NSObject {
     func updateStatusButton(utilization: Int, projected: Int? = nil) {
         guard let button = statusItem.button else { return }
 
-        // Color driven by the projection when available (forward-looking), otherwise
-        // by current utilization. Uses the shared muted palette so the menu bar,
-        // popover, and notch pill all stay consistent.
-        let reference = projected ?? utilization
-        let color = UsagePalette.nsColor(for: reference)
+        // The icon is always rendered in the standard label color (white in dark
+        // mode, black in light mode) so it matches other menu bar items. The
+        // utilization level is shown in detail in the popover.
+        let color = NSColor.labelColor
 
-        // Only the icon is shown in the menu bar — no percentage text. The color
-        // still conveys the utilization level at a glance (green/orange/red).
-        // Detailed numbers live in the popover.
         let text = "◐"
 
         let attributed = NSMutableAttributedString(string: text)
@@ -86,10 +82,11 @@ class StatusBarController: NSObject {
     private func showSettings() {
         popover.performClose(nil)
 
-        settingsState.orgId = KeychainHelper.load(.organizationId) ?? ""
-        settingsState.cookie = KeychainHelper.load(.sessionCookie) ?? ""
-        settingsState.openRouterKey = KeychainHelper.load(.openRouterAPIKey) ?? ""
-        settingsState.clineSessionCookie = KeychainHelper.load(.clineSessionCookie) ?? ""
+        let creds = KeychainHelper.loadAll()
+        settingsState.orgId = creds?.organizationId ?? ""
+        settingsState.cookie = creds?.sessionCookie ?? ""
+        settingsState.openRouterKey = creds?.openRouterAPIKey ?? ""
+        settingsState.clineSessionCookie = creds?.clineSessionCookie ?? ""
         settingsState.notchOverlayEnabled = UserDefaults.standard.bool(forKey: SettingsState.notchOverlayKey)
 
         settingsPopover = NSPopover()
@@ -124,22 +121,15 @@ class StatusBarController: NSObject {
             return
         }
 
-        _ = KeychainHelper.save(orgId, for: .organizationId)
-        _ = KeychainHelper.save(cookie, for: .sessionCookie)
-
-        // OpenRouter key is optional — empty field removes any existing key.
-        if openRouterKey.isEmpty {
-            KeychainHelper.delete(.openRouterAPIKey)
-        } else {
-            _ = KeychainHelper.save(openRouterKey, for: .openRouterAPIKey)
-        }
-
-        // Cline Pass session cookie is optional — empty field removes any existing key.
-        if clineCookie.isEmpty {
-            KeychainHelper.delete(.clineSessionCookie)
-        } else {
-            _ = KeychainHelper.save(clineCookie, for: .clineSessionCookie)
-        }
+        // All credentials are stored in a single Keychain item (one unlock prompt)
+        // rather than one item per field.
+        let creds = KeychainHelper.Credentials(
+            organizationId: orgId,
+            sessionCookie: cookie,
+            openRouterAPIKey: openRouterKey,
+            clineSessionCookie: clineCookie
+        )
+        _ = KeychainHelper.saveAll(creds)
 
         UserDefaults.standard.set(settingsState.notchOverlayEnabled, forKey: SettingsState.notchOverlayKey)
         applyNotchOverlayPreference()
@@ -174,8 +164,9 @@ class StatusBarController: NSObject {
     }
 
     func refreshUsage() async {
-        guard let orgId = KeychainHelper.load(.organizationId),
-              let cookie = KeychainHelper.load(.sessionCookie) else {
+        guard let creds = KeychainHelper.loadAll(),
+              !creds.organizationId.isEmpty,
+              !creds.sessionCookie.isEmpty else {
             usageState.error = "Configuration requise"
             return
         }
@@ -183,8 +174,10 @@ class StatusBarController: NSObject {
         usageState.isLoading = true
         usageState.error = nil
 
-        let openRouterKey = KeychainHelper.load(.openRouterAPIKey)
-        let clineCookie = KeychainHelper.load(.clineSessionCookie)
+        let orgId = creds.organizationId
+        let cookie = creds.sessionCookie
+        let openRouterKey = creds.openRouterAPIKey.isEmpty ? nil : creds.openRouterAPIKey
+        let clineCookie = creds.clineSessionCookie.isEmpty ? nil : creds.clineSessionCookie
 
         // Fire all requests concurrently.
         async let claudeResult = ClaudeAPIService.shared.fetchUsage(

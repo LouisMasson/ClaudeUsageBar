@@ -1,66 +1,127 @@
 import Foundation
 import Security
 
+/// Secure storage for all app credentials.
+///
+/// All four credentials (Claude org ID, Claude session cookie, OpenRouter API key,
+/// Cline Pass session cookie) are stored together in a **single Keychain item** as a
+/// JSON blob. This minimizes Keychain access prompts — one unlock covers every
+/// credential — instead of triggering a prompt per item on every save/load (the
+/// previous per-field design caused up to 6 password prompts on each restart).
+///
+/// Older app versions stored each credential in its own Keychain item. On the first
+/// `loadAll()` call, if the consolidated blob is missing, the legacy items are read
+/// and migrated into the blob automatically (then deleted), so existing users keep
+/// their configuration without any action.
 enum KeychainHelper {
     private static let service = "com.louismasson.ClaudeUsageBar"
+    private static let account = "credentials"
 
-    enum Key: String {
-        case sessionCookie = "claude_session_cookie"
-        case organizationId = "claude_organization_id"
-        case openRouterAPIKey = "openrouter_api_key"
-        case clineSessionCookie = "cline_session_cookie"
+    // Legacy per-field accounts, kept only for one-time migration from older versions
+    // that stored each credential in its own Keychain item.
+    private static let legacyAccounts = [
+        "claude_session_cookie",
+        "claude_organization_id",
+        "openrouter_api_key",
+        "cline_session_cookie"
+    ]
+
+    struct Credentials: Codable {
+        var organizationId: String = ""
+        var sessionCookie: String = ""
+        var openRouterAPIKey: String = ""
+        var clineSessionCookie: String = ""
     }
 
-    static func save(_ value: String, for key: Key) -> Bool {
-        guard let data = value.data(using: .utf8) else { return false }
+    // MARK: - Single-blob API
 
-        // Delete existing item first
-        delete(key)
-
+    /// Stores all credentials in one Keychain item (replaces any existing blob).
+    static func saveAll(_ creds: Credentials) -> Bool {
+        guard let data = try? JSONEncoder().encode(creds) else { return false }
+        deleteAll()
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: key.rawValue,
+            kSecAttrAccount as String: account,
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
         ]
-
-        let status = SecItemAdd(query as CFDictionary, nil)
-        return status == errSecSuccess
+        return SecItemAdd(query as CFDictionary, nil) == errSecSuccess
     }
 
-    static func load(_ key: Key) -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key.rawValue,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-
-        guard status == errSecSuccess,
-              let data = result as? Data,
-              let value = String(data: data, encoding: .utf8) else {
-            return nil
+    /// Loads all credentials from the single Keychain item. Migrates from the legacy
+    /// per-field items on first call if the blob does not exist yet.
+    static func loadAll() -> Credentials? {
+        if let data = loadRaw(account: account) {
+            if let creds = try? JSONDecoder().decode(Credentials.self, from: data) {
+                return creds
+            }
         }
-
-        return value
+        // Fallback: migrate from legacy per-field items (older app versions).
+        if let migrated = migrateFromLegacy() {
+            _ = saveAll(migrated)
+            deleteLegacy()
+            return migrated
+        }
+        return nil
     }
 
-    static func delete(_ key: Key) {
+    static func deleteAll() {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: key.rawValue
+            kSecAttrAccount as String: account
         ]
-
         SecItemDelete(query as CFDictionary)
     }
 
     static func hasCredentials() -> Bool {
-        return load(.sessionCookie) != nil && load(.organizationId) != nil
+        guard let creds = loadAll() else { return false }
+        return !creds.sessionCookie.isEmpty && !creds.organizationId.isEmpty
+    }
+
+    // MARK: - Internal
+
+    private static func loadRaw(account: String) -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else { return nil }
+        return data
+    }
+
+    private static func migrateFromLegacy() -> Credentials? {
+        func legacy(_ account: String) -> String? {
+            guard let data = loadRaw(account: account) else { return nil }
+            return String(data: data, encoding: .utf8)
+        }
+        let orgId = legacy("claude_organization_id")
+        let cookie = legacy("claude_session_cookie")
+        let orKey = legacy("openrouter_api_key")
+        let cline = legacy("cline_session_cookie")
+        guard orgId != nil || cookie != nil || orKey != nil || cline != nil else { return nil }
+        return Credentials(
+            organizationId: orgId ?? "",
+            sessionCookie: cookie ?? "",
+            openRouterAPIKey: orKey ?? "",
+            clineSessionCookie: cline ?? ""
+        )
+    }
+
+    private static func deleteLegacy() {
+        for account in legacyAccounts {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: account
+            ]
+            SecItemDelete(query as CFDictionary)
+        }
     }
 }

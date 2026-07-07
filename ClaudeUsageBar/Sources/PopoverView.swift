@@ -32,12 +32,14 @@ struct PopoverView: View {
 
             Divider()
 
-            if usageState.cookieExpired {
-                CookieExpiredView(onSettings: onSettings)
-            } else if let error = usageState.error {
+            if let error = usageState.error {
                 ErrorView(message: error, onRetry: onRefresh)
-            } else if usageState.usage != nil {
-                UsageDetailsView(usageState: usageState)
+            } else if usageState.usage != nil || usageState.clineUsage != nil || usageState.openRouterCredits != nil || usageState.cookieExpired {
+                // Show the full details view whenever there is anything to display —
+                // including when the Claude cookie is expired (Claude buckets show
+                // "N/A" while Cline/OpenRouter stay visible). We never block the whole
+                // popover just because one service is down.
+                UsageDetailsView(usageState: usageState, onSettings: onSettings)
             } else {
                 Text("Chargement...")
                     .foregroundColor(.secondary)
@@ -90,6 +92,7 @@ struct PopoverView: View {
 
 struct UsageDetailsView: View {
     @ObservedObject var usageState: UsageState
+    var onSettings: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -99,7 +102,8 @@ struct UsageDetailsView: View {
                 utilization: usageState.sessionUtilization,
                 resetTime: usageState.sessionResetTime,
                 isPrimary: true,
-                projectedAtReset: usageState.sessionProjectedUtilization
+                projectedAtReset: usageState.sessionProjectedUtilization,
+                isNA: usageState.cookieExpired
             )
 
             // Limites hebdomadaires
@@ -112,22 +116,40 @@ struct UsageDetailsView: View {
                 title: "Tous modeles",
                 utilization: usageState.weeklyUtilization,
                 resetTime: usageState.weeklyResetTime,
-                projectedAtReset: usageState.weeklyProjectedUtilization
+                projectedAtReset: usageState.weeklyProjectedUtilization,
+                isNA: usageState.cookieExpired
             )
 
             UsageRow(
                 title: "Sonnet",
                 utilization: usageState.sonnetUtilization,
                 resetTime: usageState.usage?.sevenDaySonnet?.timeUntilReset ?? "N/A",
-                projectedAtReset: usageState.sonnetProjectedUtilization
+                projectedAtReset: usageState.sonnetProjectedUtilization,
+                isNA: usageState.cookieExpired
             )
 
             UsageRow(
                 title: "Claude Design",
                 utilization: usageState.designUtilization,
                 resetTime: usageState.usage?.sevenDayOmelette?.timeUntilReset ?? "N/A",
-                projectedAtReset: usageState.designProjectedUtilization
+                projectedAtReset: usageState.designProjectedUtilization,
+                isNA: usageState.cookieExpired
             )
+
+            // Discrete "cookie expired" notice under the Claude section, so the
+            // user understands why buckets are N/A without blocking the rest.
+            if usageState.cookieExpired {
+                Button(action: onSettings) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "lock.rotation")
+                            .font(.caption2)
+                        Text("Session Claude expirée — mettre à jour")
+                            .font(.caption2)
+                    }
+                    .foregroundColor(UsagePalette.orange)
+                }
+                .buttonStyle(.borderless)
+            }
 
             // OpenRouter — only rendered when a key is configured and at least
             // one fetch has completed (success or failure).
@@ -196,6 +218,10 @@ struct UsageRow: View {
     /// Projected utilization (%) at reset time. Only the session row uses this;
     /// weekly buckets move too slowly for a useful short-term forecast.
     var projectedAtReset: Int? = nil
+    /// When true (e.g. Claude cookie expired), the row shows "N/A" in muted gray
+    /// and an empty bar instead of a value. The row stays visible so the layout
+    /// doesn't jump and the user sees which buckets are affected.
+    var isNA: Bool = false
 
     /// Color driven by projection when present (forward-looking), else current utilization.
     var barColor: Color {
@@ -208,9 +234,15 @@ struct UsageRow: View {
                 Text(title)
                     .font(isPrimary ? .body.bold() : .body)
                 Spacer()
-                Text("\(utilization)%")
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundColor(barColor)
+                if isNA {
+                    Text("N/A")
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("\(utilization)%")
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundColor(barColor)
+                }
             }
 
             GeometryReader { geometry in
@@ -219,18 +251,20 @@ struct UsageRow: View {
                         .fill(Color.gray.opacity(0.3))
                         .frame(height: 6)
 
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(barColor)
-                        .frame(width: geometry.size.width * CGFloat(utilization) / 100, height: 6)
+                    if !isNA {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(barColor)
+                            .frame(width: geometry.size.width * CGFloat(utilization) / 100, height: 6)
+                    }
                 }
             }
             .frame(height: 6)
 
             HStack(spacing: 8) {
-                Text("Reset: \(resetTime)")
+                Text("Reset: \(isNA ? "N/A" : resetTime)")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                if let projected = projectedAtReset {
+                if !isNA, let projected = projectedAtReset {
                     Spacer()
                     Text("→ \(projected)% au reset")
                         .font(.caption)

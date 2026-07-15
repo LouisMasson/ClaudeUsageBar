@@ -186,22 +186,6 @@ struct UsageDetailsView: View {
                 isNA: usageState.cookieExpired
             )
 
-            UsageRow(
-                title: "Sonnet",
-                utilization: usageState.sonnetUtilization,
-                resetTime: usageState.usage?.sevenDaySonnet?.timeUntilReset ?? "N/A",
-                projectedAtReset: usageState.sonnetProjectedUtilization,
-                isNA: usageState.cookieExpired
-            )
-
-            UsageRow(
-                title: "Claude Design",
-                utilization: usageState.designUtilization,
-                resetTime: usageState.usage?.sevenDayOmelette?.timeUntilReset ?? "N/A",
-                projectedAtReset: usageState.designProjectedUtilization,
-                isNA: usageState.cookieExpired
-            )
-
             // Discrete "cookie expired" notice under the Claude section, so the
             // user understands why buckets are N/A without blocking the rest.
             if usageState.cookieExpired {
@@ -235,6 +219,11 @@ struct UsageDetailsView: View {
                         .font(.caption2)
                         .foregroundColor(.red)
                 }
+
+                Link(destination: URL(string: "https://openrouter.ai/settings/credits")!) {
+                    Label("Recharger des crédits", systemImage: "plus.circle")
+                        .font(.caption)
+                }
             }
 
             // Cline Pass — only rendered when a cookie is configured and at least
@@ -260,12 +249,6 @@ struct UsageDetailsView: View {
                         projectedAtReset: usageState.clineWeeklyProjectedUtilization
                     )
 
-                    UsageRow(
-                        title: "Mensuel",
-                        utilization: usageState.clineMonthlyUtilization,
-                        resetTime: usageState.clineMonthlyResetTime,
-                        projectedAtReset: usageState.clineMonthlyProjectedUtilization
-                    )
                 } else if let error = usageState.clineError {
                     Text(error)
                         .font(.caption2)

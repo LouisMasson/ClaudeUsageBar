@@ -46,6 +46,22 @@ struct DashboardView: View {
                     detail: "Reset \(usageState.weeklyResetTime)",
                     progress: Double(usageState.weeklyUtilization)
                 )
+                if usageState.usage?.sevenDaySonnet != nil {
+                    DashboardMetricCard(
+                        title: "Claude · Sonnet",
+                        value: "\(usageState.sonnetUtilization)%",
+                        detail: "Reset \(usageState.usage?.sevenDaySonnet?.timeUntilReset ?? "N/A")",
+                        progress: Double(usageState.sonnetUtilization)
+                    )
+                }
+                if usageState.usage?.sevenDayOmelette != nil {
+                    DashboardMetricCard(
+                        title: "Claude · Design",
+                        value: "\(usageState.designUtilization)%",
+                        detail: "Reset \(usageState.usage?.sevenDayOmelette?.timeUntilReset ?? "N/A")",
+                        progress: Double(usageState.designUtilization)
+                    )
+                }
                 if usageState.openRouterCredits != nil {
                     DashboardMetricCard(
                         title: "OpenRouter",
@@ -60,6 +76,18 @@ struct DashboardView: View {
                         value: "\(usageState.clineFiveHourUtilization)%",
                         detail: "Reset \(usageState.clineFiveHourResetTime)",
                         progress: Double(usageState.clineFiveHourUtilization)
+                    )
+                    DashboardMetricCard(
+                        title: "Cline · Semaine",
+                        value: "\(usageState.clineWeeklyUtilization)%",
+                        detail: "Reset \(usageState.clineWeeklyResetTime)",
+                        progress: Double(usageState.clineWeeklyUtilization)
+                    )
+                    DashboardMetricCard(
+                        title: "Cline · Mensuel",
+                        value: "\(usageState.clineMonthlyUtilization)%",
+                        detail: "Reset \(usageState.clineMonthlyResetTime)",
+                        progress: Double(usageState.clineMonthlyUtilization)
                     )
                 }
             }

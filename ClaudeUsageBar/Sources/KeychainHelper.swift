@@ -3,8 +3,7 @@ import Security
 
 /// Secure storage for all app credentials.
 ///
-/// All four credentials (Claude org ID, Claude session cookie, OpenRouter API key,
-/// Cline Pass session cookie) are stored together in a **single Keychain item** as a
+/// All credentials are stored together in a **single Keychain item** as a
 /// JSON blob. This minimizes Keychain access prompts — one unlock covers every
 /// credential — instead of triggering a prompt per item on every save/load (the
 /// previous per-field design caused up to 6 password prompts on each restart).
@@ -30,6 +29,7 @@ enum KeychainHelper {
         var organizationId: String = ""
         var sessionCookie: String = ""
         var openRouterAPIKey: String = ""
+        var openRouterManagementKey: String = ""
         var clineSessionCookie: String = ""
         var vpsBaseURL: String = "https://status.patronusguardian.org"
         var vpsAPIToken: String = ""
@@ -38,6 +38,7 @@ enum KeychainHelper {
             organizationId: String = "",
             sessionCookie: String = "",
             openRouterAPIKey: String = "",
+            openRouterManagementKey: String = "",
             clineSessionCookie: String = "",
             vpsBaseURL: String = "https://status.patronusguardian.org",
             vpsAPIToken: String = ""
@@ -45,13 +46,14 @@ enum KeychainHelper {
             self.organizationId = organizationId
             self.sessionCookie = sessionCookie
             self.openRouterAPIKey = openRouterAPIKey
+            self.openRouterManagementKey = openRouterManagementKey
             self.clineSessionCookie = clineSessionCookie
             self.vpsBaseURL = vpsBaseURL
             self.vpsAPIToken = vpsAPIToken
         }
 
         private enum CodingKeys: String, CodingKey {
-            case organizationId, sessionCookie, openRouterAPIKey, clineSessionCookie
+            case organizationId, sessionCookie, openRouterAPIKey, openRouterManagementKey, clineSessionCookie
             case vpsBaseURL, vpsAPIToken
         }
 
@@ -60,6 +62,7 @@ enum KeychainHelper {
             organizationId = try c.decodeIfPresent(String.self, forKey: .organizationId) ?? ""
             sessionCookie = try c.decodeIfPresent(String.self, forKey: .sessionCookie) ?? ""
             openRouterAPIKey = try c.decodeIfPresent(String.self, forKey: .openRouterAPIKey) ?? ""
+            openRouterManagementKey = try c.decodeIfPresent(String.self, forKey: .openRouterManagementKey) ?? ""
             clineSessionCookie = try c.decodeIfPresent(String.self, forKey: .clineSessionCookie) ?? ""
             vpsBaseURL = try c.decodeIfPresent(String.self, forKey: .vpsBaseURL)
                 ?? "https://status.patronusguardian.org"

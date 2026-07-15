@@ -106,6 +106,7 @@ class StatusBarController: NSObject {
         settingsState.orgId = creds?.organizationId ?? ""
         settingsState.cookie = creds?.sessionCookie ?? ""
         settingsState.openRouterKey = creds?.openRouterAPIKey ?? ""
+        settingsState.openRouterManagementKey = creds?.openRouterManagementKey ?? ""
         settingsState.clineSessionCookie = creds?.clineSessionCookie ?? ""
         settingsState.vpsBaseURL = creds?.vpsBaseURL ?? "https://status.patronusguardian.org"
         settingsState.vpsAPIToken = creds?.vpsAPIToken ?? ""
@@ -143,6 +144,7 @@ class StatusBarController: NSObject {
         let orgId = settingsState.orgId.trimmingCharacters(in: .whitespacesAndNewlines)
         let cookie = settingsState.cookie.trimmingCharacters(in: .whitespacesAndNewlines)
         let openRouterKey = settingsState.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let openRouterManagementKey = settingsState.openRouterManagementKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let clineCookie = settingsState.clineSessionCookie.trimmingCharacters(in: .whitespacesAndNewlines)
         let vpsBaseURL = settingsState.vpsBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let vpsToken = settingsState.vpsAPIToken.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -163,6 +165,7 @@ class StatusBarController: NSObject {
             organizationId: orgId,
             sessionCookie: cookie,
             openRouterAPIKey: openRouterKey,
+            openRouterManagementKey: openRouterManagementKey,
             clineSessionCookie: clineCookie,
             vpsBaseURL: vpsBaseURL.isEmpty ? "https://status.patronusguardian.org" : vpsBaseURL,
             vpsAPIToken: vpsToken
@@ -397,13 +400,17 @@ class StatusBarController: NSObject {
         if let dashboardWindow {
             dashboardWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+            Task { await refreshOpenRouterActivity() }
             return
         }
 
         let root = DashboardView(
             usageState: usageState,
             onRefresh: { [weak self] in
-                Task { await self?.refreshUsage() }
+                Task {
+                    await self?.refreshUsage()
+                    await self?.refreshOpenRouterActivity(force: true)
+                }
             }
         )
         let window = NSWindow(
@@ -420,7 +427,39 @@ class StatusBarController: NSObject {
         dashboardWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        Task { await refreshUsage() }
+        Task {
+            async let usageRefresh: Void = refreshUsage()
+            async let activityRefresh: Void = refreshOpenRouterActivity()
+            _ = await (usageRefresh, activityRefresh)
+        }
+    }
+
+    /// OpenRouter analytics can fan out into one request per API key, so it is
+    /// intentionally dashboard-only and cached for 15 minutes. The lightweight
+    /// credit balance remains part of the normal five-minute menu refresh.
+    func refreshOpenRouterActivity(force: Bool = false) async {
+        if !force,
+           let snapshot = usageState.openRouterActivity,
+           Date().timeIntervalSince(snapshot.fetchedAt) < 15 * 60 {
+            return
+        }
+
+        let credentials = KeychainHelper.loadAll() ?? KeychainHelper.Credentials()
+        let key = credentials.openRouterManagementKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else {
+            usageState.openRouterActivity = nil
+            usageState.openRouterActivityError = nil
+            return
+        }
+
+        usageState.isLoadingOpenRouterActivity = true
+        usageState.openRouterActivityError = nil
+        do {
+            usageState.openRouterActivity = try await OpenRouterAPIService.shared.fetchActivitySnapshot(apiKey: key)
+        } catch {
+            usageState.openRouterActivityError = error.localizedDescription
+        }
+        usageState.isLoadingOpenRouterActivity = false
     }
 
     /// Triages a Claude API error into one of three UI states:

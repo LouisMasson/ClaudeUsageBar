@@ -468,7 +468,10 @@ struct SettingsViewWrapper: View {
                 TextField("sk-or-v1-...", text: $settingsState.openRouterKey)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.caption, design: .monospaced))
-                Text("Laissez vide pour désactiver l'affichage OpenRouter.")
+                SecureField("Clé de gestion (activité)", text: $settingsState.openRouterManagementKey)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+                Text("La clé standard affiche les crédits. La clé de gestion, distincte et en lecture seule ici, charge l’activité.")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }

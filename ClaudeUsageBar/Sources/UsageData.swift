@@ -130,6 +130,248 @@ struct OpenRouterCredits: Codable {
     }
 }
 
+struct OpenRouterActivityResponse: Decodable {
+    let data: [OpenRouterActivityItem]
+}
+
+struct OpenRouterActivityItem: Decodable, Identifiable {
+    let byokUsageInference: Double
+    let completionTokens: Int
+    let date: String
+    let endpointID: String?
+    let model: String
+    let modelPermaslug: String?
+    let promptTokens: Int
+    let providerName: String
+    let reasoningTokens: Int
+    let requests: Int
+    let usage: Double
+
+    var id: String { "\(date)|\(endpointID ?? "")|\(model)|\(providerName)" }
+    var tokenVolume: Int { promptTokens + completionTokens }
+
+    enum CodingKeys: String, CodingKey {
+        case byokUsageInference = "byok_usage_inference"
+        case completionTokens = "completion_tokens"
+        case date
+        case endpointID = "endpoint_id"
+        case model
+        case modelPermaslug = "model_permaslug"
+        case promptTokens = "prompt_tokens"
+        case providerName = "provider_name"
+        case reasoningTokens = "reasoning_tokens"
+        case requests
+        case usage
+    }
+}
+
+struct OpenRouterAPIKeysResponse: Decodable {
+    let data: [OpenRouterAPIKey]
+}
+
+struct OpenRouterAPIKey: Decodable {
+    let hash: String
+    let name: String?
+    let label: String?
+    let disabled: Bool?
+
+    var displayName: String {
+        let candidate = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let candidate, !candidate.isEmpty { return candidate }
+        if let label, !label.isEmpty { return label }
+        return "Clé \(hash.prefix(7))"
+    }
+}
+
+struct OpenRouterKeyActivity: Identifiable {
+    let keyHash: String
+    let name: String
+    let items: [OpenRouterActivityItem]
+
+    var id: String { keyHash }
+}
+
+struct OpenRouterDimensionActivity: Identifiable {
+    let date: String
+    let name: String
+    let spend: Double
+    let requests: Int
+    let tokens: Int
+
+    var id: String { "\(date)|\(name)" }
+}
+
+struct OpenRouterActivitySnapshot {
+    let items: [OpenRouterActivityItem]
+    let cacheHitRates: [String: Double]
+    let modelActivities: [OpenRouterDimensionActivity]
+    let appActivities: [OpenRouterDimensionActivity]
+    let keyActivities: [OpenRouterDimensionActivity]
+    let fetchedAt: Date
+
+    func summary(days: Int) -> OpenRouterActivitySummary {
+        OpenRouterActivitySummary(
+            items: items,
+            cacheHitRates: cacheHitRates,
+            modelActivities: modelActivities,
+            appActivities: appActivities,
+            keyActivities: keyActivities,
+            days: days
+        )
+    }
+}
+
+struct OpenRouterActivityRank: Identifiable {
+    let name: String
+    let spend: Double
+    let requests: Int
+    let tokens: Int
+
+    var id: String { name }
+}
+
+struct OpenRouterDailyActivity: Identifiable {
+    let date: String
+    let spend: Double
+    let requests: Int
+    let tokens: Int
+
+    var id: String { date }
+}
+
+struct OpenRouterActivitySummary {
+    let days: Int
+    let spend: Double
+    let requests: Int
+    let tokens: Int
+    let reasoningTokens: Int
+    let byokInference: Double
+    let blendedCostPerMillion: Double
+    let cacheHitRate: Double?
+    let spendChange: Double?
+    let requestsChange: Double?
+    let tokensChange: Double?
+    let daily: [OpenRouterDailyActivity]
+    let topModels: [OpenRouterActivityRank]
+    let topProviders: [OpenRouterActivityRank]
+    let topApps: [OpenRouterActivityRank]
+    let topKeys: [OpenRouterActivityRank]
+
+    init(
+        items: [OpenRouterActivityItem],
+        cacheHitRates: [String: Double] = [:],
+        modelActivities: [OpenRouterDimensionActivity] = [],
+        appActivities: [OpenRouterDimensionActivity] = [],
+        keyActivities: [OpenRouterDimensionActivity] = [],
+        days: Int
+    ) {
+        self.days = days
+        let dates = Array(Set(items.map(\.date))).sorted()
+        let latestDate = dates.last.flatMap(Self.activityDateFormatter.date)
+        let currentDateStrings = Self.periodDates(endingAt: latestDate, days: days)
+        let previousEnd = latestDate.flatMap { Self.utcCalendar.date(byAdding: .day, value: -days, to: $0) }
+        let previousDateStrings = Self.periodDates(endingAt: previousEnd, days: days)
+        let selectedDates = Set(currentDateStrings)
+        let previousDates = Set(previousDateStrings)
+        let current = items.filter { selectedDates.contains($0.date) }
+        let previous = items.filter { previousDates.contains($0.date) }
+
+        spend = current.reduce(0) { $0 + $1.usage }
+        requests = current.reduce(0) { $0 + $1.requests }
+        tokens = current.reduce(0) { $0 + $1.tokenVolume }
+        reasoningTokens = current.reduce(0) { $0 + $1.reasoningTokens }
+        byokInference = current.reduce(0) { $0 + $1.byokUsageInference }
+        blendedCostPerMillion = tokens > 0 ? spend / Double(tokens) * 1_000_000 : 0
+        let cacheWeightedRows = current.compactMap { item -> (Double, Int)? in
+            guard let rate = cacheHitRates[item.date] else { return nil }
+            return (rate, item.tokenVolume)
+        }
+        let cacheWeight = cacheWeightedRows.reduce(0) { $0 + $1.1 }
+        cacheHitRate = cacheWeight > 0
+            ? cacheWeightedRows.reduce(0) { $0 + $1.0 * Double($1.1) } / Double(cacheWeight)
+            : nil
+
+        let previousSpend = previous.reduce(0) { $0 + $1.usage }
+        let previousRequests = previous.reduce(0) { $0 + $1.requests }
+        let previousTokens = previous.reduce(0) { $0 + $1.tokenVolume }
+        spendChange = Self.change(current: spend, previous: previousSpend)
+        requestsChange = Self.change(current: Double(requests), previous: Double(previousRequests))
+        tokensChange = Self.change(current: Double(tokens), previous: Double(previousTokens))
+
+        daily = currentDateStrings.map { date in
+            let rows = current.filter { $0.date == date }
+            return OpenRouterDailyActivity(
+                date: date,
+                spend: rows.reduce(0) { $0 + $1.usage },
+                requests: rows.reduce(0) { $0 + $1.requests },
+                tokens: rows.reduce(0) { $0 + $1.tokenVolume }
+            )
+        }
+        topModels = modelActivities.isEmpty
+            ? Self.rank(current, name: { $0.model })
+            : Self.rankDimensions(modelActivities.filter { selectedDates.contains($0.date) })
+        topProviders = Self.rank(current, name: { $0.providerName })
+        topApps = Self.rankDimensions(appActivities.filter { selectedDates.contains($0.date) })
+        topKeys = Self.rankDimensions(keyActivities.filter { selectedDates.contains($0.date) })
+    }
+
+    private static func rank(
+        _ items: [OpenRouterActivityItem],
+        name: (OpenRouterActivityItem) -> String
+    ) -> [OpenRouterActivityRank] {
+        Dictionary(grouping: items, by: name).map { label, rows in
+            OpenRouterActivityRank(
+                name: label,
+                spend: rows.reduce(0) { $0 + $1.usage },
+                requests: rows.reduce(0) { $0 + $1.requests },
+                tokens: rows.reduce(0) { $0 + $1.tokenVolume }
+            )
+        }
+        .filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        .sorted { $0.tokens == $1.tokens ? $0.spend > $1.spend : $0.tokens > $1.tokens }
+    }
+
+    private static func rankDimensions(_ items: [OpenRouterDimensionActivity]) -> [OpenRouterActivityRank] {
+        Dictionary(grouping: items, by: \.name).map { label, rows in
+            OpenRouterActivityRank(
+                name: label,
+                spend: rows.reduce(0) { $0 + $1.spend },
+                requests: rows.reduce(0) { $0 + $1.requests },
+                tokens: rows.reduce(0) { $0 + $1.tokens }
+            )
+        }
+        .filter { $0.requests > 0 || $0.spend > 0 || $0.tokens > 0 }
+        .sorted { $0.tokens == $1.tokens ? $0.spend > $1.spend : $0.tokens > $1.tokens }
+    }
+
+    private static func change(current: Double, previous: Double) -> Double? {
+        guard previous > 0 else { return nil }
+        return (current - previous) / previous * 100
+    }
+
+    private static var utcCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }
+
+    private static var activityDateFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.calendar = utcCalendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }
+
+    private static func periodDates(endingAt endDate: Date?, days: Int) -> [String] {
+        guard let endDate else { return [] }
+        return (0..<days).compactMap { offset in
+            utcCalendar.date(byAdding: .day, value: offset - days + 1, to: endDate)
+        }.map(activityDateFormatter.string)
+    }
+}
+
 // MARK: - Cline Pass Models
 
 /// Response from `GET https://api.cline.bot/api/v1/users/me/plan/usage-limits`.
@@ -268,6 +510,7 @@ class SettingsState: ObservableObject {
     @Published var orgId: String = ""
     @Published var cookie: String = ""
     @Published var openRouterKey: String = ""
+    @Published var openRouterManagementKey: String = ""
     @Published var clineSessionCookie: String = ""
     @Published var vpsBaseURL: String = "https://status.patronusguardian.org"
     @Published var vpsAPIToken: String = ""
@@ -289,6 +532,9 @@ class UsageState: ObservableObject {
 
     @Published var openRouterCredits: OpenRouterCredits?
     @Published var openRouterError: String?
+    @Published var openRouterActivity: OpenRouterActivitySnapshot?
+    @Published var openRouterActivityError: String?
+    @Published var isLoadingOpenRouterActivity = false
 
     @Published var clineUsage: ClineUsageResponse?
     @Published var clineError: String?

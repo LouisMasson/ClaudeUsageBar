@@ -4,6 +4,8 @@ enum SelfTestRunner {
     static func run() throws {
         try testOAuthUsageDecoding()
         try testVPSStatusDecoding()
+        try testOpenRouterActivitySummary()
+        try testOpenRouterAnalyticsDecoding()
         try testLegacyCredentialMigration()
         FileHandle.standardOutput.write(Data("ClaudeUsageBar self-tests: OK\n".utf8))
     }
@@ -30,10 +32,38 @@ enum SelfTestRunner {
         try require(status.services.items.first?.name == "Traefik", "VPS service list")
     }
 
+    private static func testOpenRouterActivitySummary() throws {
+        let json = #"{"data":[{"byok_usage_inference":0,"completion_tokens":500,"date":"2026-07-14","endpoint_id":"ep-1","model":"anthropic/claude-sonnet-4","model_permaslug":"anthropic/claude-sonnet-4","prompt_tokens":1000,"provider_name":"Anthropic","reasoning_tokens":100,"requests":2,"usage":0.15},{"byok_usage_inference":0.02,"completion_tokens":1000,"date":"2026-07-15","endpoint_id":"ep-2","model":"openai/gpt-5","model_permaslug":null,"prompt_tokens":2000,"provider_name":"OpenAI","reasoning_tokens":200,"requests":3,"usage":0.30}]}"#
+        let response = try JSONDecoder().decode(OpenRouterActivityResponse.self, from: Data(json.utf8))
+        let summary = OpenRouterActivitySummary(items: response.data, keyActivities: [], days: 7)
+        try require(summary.requests == 5, "OpenRouter request aggregation")
+        try require(summary.tokens == 4_500, "OpenRouter token aggregation")
+        try require(abs(summary.spend - 0.45) < 0.0001, "OpenRouter spend aggregation")
+        try require(summary.topModels.first?.name == "openai/gpt-5", "OpenRouter model ranking")
+    }
+
+    private static func testOpenRouterAnalyticsDecoding() throws {
+        let json = #"{"data":{"data":[{"created_at__day":"2026-07-14","model":"anthropic/claude-sonnet-4","total_usage":0.42,"request_count":"12","tokens_total":"9800","cache_hit_rate":0.75}],"metadata":{"truncated":false}}}"#
+        let response = try JSONDecoder().decode(OpenRouterAnalyticsResponse.self, from: Data(json.utf8))
+        let row = try requireValue(response.data.data.first, "OpenRouter analytics row")
+        try require(row.date == "2026-07-14", "OpenRouter analytics date")
+        try require(row.requests == 12, "OpenRouter string request count")
+        try require(row.tokens == 9_800, "OpenRouter string token count")
+        try require(row.cacheHitRate == 0.75, "OpenRouter cache hit rate")
+    }
+
+    private static func requireValue<T>(_ value: T?, _ message: String) throws -> T {
+        guard let value else {
+            throw NSError(domain: "ClaudeUsageBarSelfTest", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+        }
+        return value
+    }
+
     private static func testLegacyCredentialMigration() throws {
         let json = #"{"organizationId":"org","sessionCookie":"sessionKey=value","openRouterAPIKey":"","clineSessionCookie":""}"#
         let credentials = try JSONDecoder().decode(KeychainHelper.Credentials.self, from: Data(json.utf8))
         try require(credentials.vpsBaseURL == "https://status.patronusguardian.org", "Legacy VPS URL default")
         try require(credentials.vpsAPIToken.isEmpty, "Legacy VPS token default")
+        try require(credentials.openRouterManagementKey.isEmpty, "Legacy OpenRouter management key default")
     }
 }

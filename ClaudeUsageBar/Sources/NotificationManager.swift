@@ -31,6 +31,7 @@ final class NotificationManager {
     /// asserts/crashes without a bundle identifier, so we gate every call on this.
     private var notificationsEnabled: Bool {
         Bundle.main.bundleIdentifier != nil
+            && UserDefaults.standard.bool(forKey: SettingsState.alertsKey)
     }
 
     // MARK: - Dedup state

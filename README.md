@@ -18,8 +18,11 @@ A lightweight macOS menu bar app to monitor your Claude Max subscription usage i
   - **OpenRouter credits** (optional) — remaining balance + utilization bar
 - **Notch overlay** — hover the top of the screen to reveal a floating pill showing session %, projection, color-coded progress bar, and reset countdown. Sits right under the Mac notch (works on non-notched Macs too). Opt-in from Settings.
 - **Auto-refresh** every 5 minutes
+- **Contabo VPS monitoring** — CPU, RAM, disk, sites and services through a lightweight authenticated endpoint
+- **Native dashboard** with seven days of local VPS history and detailed availability lists
+- **Claude Code OAuth** as the preferred Claude usage source, with the existing claude.ai cookie as fallback
 - **Secure storage** of credentials in macOS Keychain
-- **Launch at startup** support via LaunchAgent
+- **Launch at startup** through macOS native Login Items (`SMAppService`)
 
 ## Requirements
 
@@ -98,6 +101,16 @@ in percentages alongside your Claude usage.
 Leave this field empty to hide the Cline Pass section entirely. Clearing it and
 saving also removes the cookie from your Keychain.
 
+### 5. Contabo VPS *(optional)*
+
+The app calls `GET /api/menu-status` on your status service with a read-only bearer
+token. Configure the status URL and token in Settings. No SSH command is executed
+by the Mac app.
+
+If **Use Claude Code login** is enabled, saving Settings may show one macOS Keychain
+dialog for the existing `Claude Code-credentials` item. Background refreshes are
+strictly non-interactive and never open a permission dialog.
+
 ## Usage
 
 - **Click** on the menu bar icon to see detailed usage
@@ -141,11 +154,17 @@ Implementation: a non-activating `NSPanel` positioned under `safeAreaInsets.top`
 
 ## Launch at Startup
 
-The app includes a LaunchAgent for automatic startup. To enable:
+Enable **Open at Login** in Settings. On macOS 13+, the app uses the native Login
+Items API. The macOS 12 fallback always points to the installed `.app`, never to a
+development binary under `.build`.
+
+## Verification
+
+Run the dependency-free payload checks with:
 
 ```bash
-cp ~/Library/LaunchAgents/com.louismasson.ClaudeUsageBar.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.louismasson.ClaudeUsageBar.plist
+swift build --disable-sandbox
+.build/debug/ClaudeUsageBar --self-test
 ```
 
 ## Project Structure

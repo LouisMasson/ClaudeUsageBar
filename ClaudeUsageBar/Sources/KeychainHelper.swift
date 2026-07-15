@@ -31,6 +31,40 @@ enum KeychainHelper {
         var sessionCookie: String = ""
         var openRouterAPIKey: String = ""
         var clineSessionCookie: String = ""
+        var vpsBaseURL: String = "https://status.patronusguardian.org"
+        var vpsAPIToken: String = ""
+
+        init(
+            organizationId: String = "",
+            sessionCookie: String = "",
+            openRouterAPIKey: String = "",
+            clineSessionCookie: String = "",
+            vpsBaseURL: String = "https://status.patronusguardian.org",
+            vpsAPIToken: String = ""
+        ) {
+            self.organizationId = organizationId
+            self.sessionCookie = sessionCookie
+            self.openRouterAPIKey = openRouterAPIKey
+            self.clineSessionCookie = clineSessionCookie
+            self.vpsBaseURL = vpsBaseURL
+            self.vpsAPIToken = vpsAPIToken
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case organizationId, sessionCookie, openRouterAPIKey, clineSessionCookie
+            case vpsBaseURL, vpsAPIToken
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            organizationId = try c.decodeIfPresent(String.self, forKey: .organizationId) ?? ""
+            sessionCookie = try c.decodeIfPresent(String.self, forKey: .sessionCookie) ?? ""
+            openRouterAPIKey = try c.decodeIfPresent(String.self, forKey: .openRouterAPIKey) ?? ""
+            clineSessionCookie = try c.decodeIfPresent(String.self, forKey: .clineSessionCookie) ?? ""
+            vpsBaseURL = try c.decodeIfPresent(String.self, forKey: .vpsBaseURL)
+                ?? "https://status.patronusguardian.org"
+            vpsAPIToken = try c.decodeIfPresent(String.self, forKey: .vpsAPIToken) ?? ""
+        }
     }
 
     // MARK: - Single-blob API
@@ -77,7 +111,8 @@ enum KeychainHelper {
 
     static func hasCredentials() -> Bool {
         guard let creds = loadAll() else { return false }
-        return !creds.sessionCookie.isEmpty && !creds.organizationId.isEmpty
+        return (!creds.sessionCookie.isEmpty && !creds.organizationId.isEmpty)
+            || !creds.vpsAPIToken.isEmpty
     }
 
     // MARK: - Internal

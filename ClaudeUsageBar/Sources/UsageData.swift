@@ -262,12 +262,22 @@ enum UsagePalette {
 
 class SettingsState: ObservableObject {
     static let notchOverlayKey = "notchOverlayEnabled"
+    static let claudeOAuthKey = "claudeOAuthEnabled"
+    static let alertsKey = "alertsEnabled"
 
     @Published var orgId: String = ""
     @Published var cookie: String = ""
     @Published var openRouterKey: String = ""
     @Published var clineSessionCookie: String = ""
+    @Published var vpsBaseURL: String = "https://status.patronusguardian.org"
+    @Published var vpsAPIToken: String = ""
+    @Published var claudeOAuthEnabled: Bool = UserDefaults.standard.object(forKey: SettingsState.claudeOAuthKey) == nil
+        ? true
+        : UserDefaults.standard.bool(forKey: SettingsState.claudeOAuthKey)
+    @Published var alertsEnabled: Bool = UserDefaults.standard.bool(forKey: SettingsState.alertsKey)
+    @Published var launchAtLoginEnabled: Bool = LaunchAtLoginManager.isEnabled
     @Published var notchOverlayEnabled: Bool = UserDefaults.standard.bool(forKey: SettingsState.notchOverlayKey)
+    @Published var menuBarIcon: MenuBarIcon = .saved
 }
 
 @MainActor
@@ -282,6 +292,11 @@ class UsageState: ObservableObject {
 
     @Published var clineUsage: ClineUsageResponse?
     @Published var clineError: String?
+
+    @Published var vpsStatus: VPSMenuStatus?
+    @Published var vpsError: String?
+    @Published var vpsLastUpdated: Date?
+    @Published var vpsHistory: [VPSHistorySample] = VPSHistoryStore.load()
 
     /// True when Claude's API returned 401/403 — the popover swaps to a
     /// "session expired" view with a shortcut to Settings.
@@ -363,6 +378,16 @@ class UsageState: ObservableObject {
     var openRouterTotalLabel: String {
         guard let credits = openRouterCredits else { return "" }
         return String(format: "$%.2f / $%.2f", credits.totalUsage, credits.totalCredits)
+    }
+
+    func recordVPS(_ status: VPSMenuStatus, at date: Date = Date()) {
+        let sample = VPSHistorySample(
+            timestamp: date,
+            cpu: status.vps.cpuPercent,
+            ram: status.vps.ramPercent,
+            disk: status.vps.diskPercent
+        )
+        vpsHistory = VPSHistoryStore.append(sample, to: vpsHistory)
     }
 
     // MARK: - Cline Pass

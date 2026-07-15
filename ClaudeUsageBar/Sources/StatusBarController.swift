@@ -6,7 +6,9 @@ class StatusBarController: NSObject {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var settingsPopover: NSPopover!
+    private var dashboardWindow: NSWindow?
     private var refreshTimer: Timer?
+    private var vpsRefreshTimer: Timer?
 
     let usageState = UsageState()
     let settingsState = SettingsState()
@@ -33,7 +35,7 @@ class StatusBarController: NSObject {
 
     private func setupPopover() {
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 280, height: 470)
+        popover.contentSize = NSSize(width: 380, height: 620)
         popover.behavior = .transient
         popover.animates = true
 
@@ -45,6 +47,9 @@ class StatusBarController: NSObject {
             onSettings: { [weak self] in
                 self?.showSettings()
             },
+            onDashboard: { [weak self] in
+                self?.showDashboard()
+            },
             onQuit: {
                 NSApplication.shared.terminate(nil)
             }
@@ -54,6 +59,18 @@ class StatusBarController: NSObject {
 
     func updateStatusButton(utilization: Int, projected: Int? = nil) {
         guard let button = statusItem.button else { return }
+
+        let icon = MenuBarIcon.saved
+        if let symbolName = icon.systemSymbolName,
+           let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: icon.label) {
+            let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+            button.image = image.withSymbolConfiguration(configuration)
+            button.image?.isTemplate = true
+            button.imagePosition = .imageOnly
+            button.attributedTitle = NSAttributedString(string: "")
+            button.toolTip = "Claude Usage — \(icon.label)"
+            return
+        }
 
         // The icon is always rendered in the standard label color (white in dark
         // mode, black in light mode) so it matches other menu bar items. The
@@ -66,7 +83,10 @@ class StatusBarController: NSObject {
         attributed.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: text.count))
         attributed.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 12, weight: .medium), range: NSRange(location: 0, length: text.count))
 
+        button.image = nil
+        button.imagePosition = .noImage
         button.attributedTitle = attributed
+        button.toolTip = "Claude Usage — \(icon.label)"
     }
 
     @objc private func togglePopover() {
@@ -87,10 +107,18 @@ class StatusBarController: NSObject {
         settingsState.cookie = creds?.sessionCookie ?? ""
         settingsState.openRouterKey = creds?.openRouterAPIKey ?? ""
         settingsState.clineSessionCookie = creds?.clineSessionCookie ?? ""
+        settingsState.vpsBaseURL = creds?.vpsBaseURL ?? "https://status.patronusguardian.org"
+        settingsState.vpsAPIToken = creds?.vpsAPIToken ?? ""
+        settingsState.claudeOAuthEnabled = UserDefaults.standard.object(forKey: SettingsState.claudeOAuthKey) == nil
+            ? true
+            : UserDefaults.standard.bool(forKey: SettingsState.claudeOAuthKey)
+        settingsState.alertsEnabled = UserDefaults.standard.bool(forKey: SettingsState.alertsKey)
+        settingsState.launchAtLoginEnabled = LaunchAtLoginManager.isEnabled
         settingsState.notchOverlayEnabled = UserDefaults.standard.bool(forKey: SettingsState.notchOverlayKey)
+        settingsState.menuBarIcon = .saved
 
         settingsPopover = NSPopover()
-        settingsPopover.contentSize = NSSize(width: 320, height: 420)
+        settingsPopover.contentSize = NSSize(width: 380, height: 640)
         settingsPopover.behavior = .applicationDefined  // Ne se ferme pas automatiquement
         settingsPopover.animates = true
 
@@ -116,9 +144,17 @@ class StatusBarController: NSObject {
         let cookie = settingsState.cookie.trimmingCharacters(in: .whitespacesAndNewlines)
         let openRouterKey = settingsState.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let clineCookie = settingsState.clineSessionCookie.trimmingCharacters(in: .whitespacesAndNewlines)
+        let vpsBaseURL = settingsState.vpsBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let vpsToken = settingsState.vpsAPIToken.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard !orgId.isEmpty, !cookie.isEmpty else {
+        guard settingsState.claudeOAuthEnabled || (!orgId.isEmpty && !cookie.isEmpty) else {
             return
+        }
+
+        // A Keychain prompt is allowed only here, following an explicit Save action.
+        // All background reads use kSecUseAuthenticationUIFail.
+        if settingsState.claudeOAuthEnabled {
+            _ = try? ClaudeOAuthService.loadCredentials(allowPrompt: true)
         }
 
         // All credentials are stored in a single Keychain item (one unlock prompt)
@@ -127,12 +163,26 @@ class StatusBarController: NSObject {
             organizationId: orgId,
             sessionCookie: cookie,
             openRouterAPIKey: openRouterKey,
-            clineSessionCookie: clineCookie
+            clineSessionCookie: clineCookie,
+            vpsBaseURL: vpsBaseURL.isEmpty ? "https://status.patronusguardian.org" : vpsBaseURL,
+            vpsAPIToken: vpsToken
         )
         _ = KeychainHelper.saveAll(creds)
 
+        let alertsWereEnabled = UserDefaults.standard.bool(forKey: SettingsState.alertsKey)
         UserDefaults.standard.set(settingsState.notchOverlayEnabled, forKey: SettingsState.notchOverlayKey)
+        UserDefaults.standard.set(settingsState.claudeOAuthEnabled, forKey: SettingsState.claudeOAuthKey)
+        UserDefaults.standard.set(settingsState.alertsEnabled, forKey: SettingsState.alertsKey)
+        UserDefaults.standard.set(settingsState.menuBarIcon.rawValue, forKey: MenuBarIcon.preferenceKey)
+        if settingsState.alertsEnabled && !alertsWereEnabled {
+            NotificationManager.shared.requestPermission()
+        }
+        try? LaunchAtLoginManager.setEnabled(settingsState.launchAtLoginEnabled)
         applyNotchOverlayPreference()
+        updateStatusButton(
+            utilization: usageState.sessionUtilization,
+            projected: usageState.sessionProjectedUtilization
+        )
 
         settingsPopover?.performClose(nil)
 
@@ -151,7 +201,8 @@ class StatusBarController: NSObject {
     }
 
     private func loadCredentialsAndRefresh() {
-        if KeychainHelper.hasCredentials() {
+        if KeychainHelper.loadAll() != nil
+            || (try? ClaudeOAuthService.loadCredentials(allowPrompt: false)) != nil {
             Task {
                 await refreshUsage()
             }
@@ -164,9 +215,11 @@ class StatusBarController: NSObject {
     }
 
     func refreshUsage() async {
-        guard let creds = KeychainHelper.loadAll(),
-              !creds.organizationId.isEmpty,
-              !creds.sessionCookie.isEmpty else {
+        let creds = KeychainHelper.loadAll() ?? KeychainHelper.Credentials()
+        let oauthEnabled = UserDefaults.standard.object(forKey: SettingsState.claudeOAuthKey) == nil
+            ? true
+            : UserDefaults.standard.bool(forKey: SettingsState.claudeOAuthKey)
+        guard oauthEnabled || (!creds.organizationId.isEmpty && !creds.sessionCookie.isEmpty) else {
             usageState.error = "Configuration requise"
             return
         }
@@ -174,15 +227,13 @@ class StatusBarController: NSObject {
         usageState.isLoading = true
         usageState.error = nil
 
-        let orgId = creds.organizationId
-        let cookie = creds.sessionCookie
         let openRouterKey = creds.openRouterAPIKey.isEmpty ? nil : creds.openRouterAPIKey
         let clineCookie = creds.clineSessionCookie.isEmpty ? nil : creds.clineSessionCookie
 
         // Fire all requests concurrently.
-        async let claudeResult = ClaudeAPIService.shared.fetchUsage(
-            organizationId: orgId,
-            sessionKey: cookie
+        async let claudeResult = fetchClaudeUsage(
+            credentials: creds,
+            oauthEnabled: oauthEnabled
         )
         async let openRouterResult: Result<OpenRouterCredits, Error>? = {
             guard let key = openRouterKey else { return nil }
@@ -202,6 +253,7 @@ class StatusBarController: NSObject {
                 return .failure(error)
             }
         }()
+        async let vpsResult: Void = refreshVPS(using: creds)
 
         // Claude (primary) — errors are triaged into cookie-expired / offline /
         // hard-error so the UI can react appropriately.
@@ -287,6 +339,88 @@ class StatusBarController: NSObject {
         }
 
         usageState.isLoading = false
+        _ = await vpsResult
+    }
+
+    private func fetchClaudeUsage(
+        credentials: KeychainHelper.Credentials,
+        oauthEnabled: Bool
+    ) async throws -> UsageResponse {
+        if oauthEnabled {
+            do {
+                let oauth = try ClaudeOAuthService.loadCredentials(allowPrompt: false)
+                return try await ClaudeOAuthService.shared.fetchUsage(accessToken: oauth.accessToken)
+            } catch {
+                // The legacy claude.ai cookie remains a deliberate fallback while
+                // Anthropic's individual OAuth usage endpoint is undocumented.
+                guard !credentials.organizationId.isEmpty, !credentials.sessionCookie.isEmpty else {
+                    throw error
+                }
+            }
+        }
+        guard !credentials.organizationId.isEmpty, !credentials.sessionCookie.isEmpty else {
+            throw ClaudeOAuthError.credentialsUnavailable
+        }
+        return try await ClaudeAPIService.shared.fetchUsage(
+            organizationId: credentials.organizationId,
+            sessionKey: credentials.sessionCookie
+        )
+    }
+
+    func refreshVPS() async {
+        guard let creds = KeychainHelper.loadAll() else { return }
+        await refreshVPS(using: creds)
+    }
+
+    private func refreshVPS(using creds: KeychainHelper.Credentials) async {
+        guard !creds.vpsAPIToken.isEmpty else {
+            usageState.vpsStatus = nil
+            usageState.vpsError = nil
+            return
+        }
+        do {
+            let status = try await VPSAPIService.shared.fetchStatus(
+                baseURL: creds.vpsBaseURL,
+                token: creds.vpsAPIToken
+            )
+            usageState.vpsStatus = status
+            usageState.vpsError = nil
+            usageState.vpsLastUpdated = Date()
+            usageState.recordVPS(status)
+        } catch {
+            usageState.vpsError = error.localizedDescription
+        }
+    }
+
+    private func showDashboard() {
+        popover.performClose(nil)
+        if let dashboardWindow {
+            dashboardWindow.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let root = DashboardView(
+            usageState: usageState,
+            onRefresh: { [weak self] in
+                Task { await self?.refreshUsage() }
+            }
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 920, height: 650),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Claude Usage Bar — Dashboard"
+        window.minSize = NSSize(width: 760, height: 520)
+        window.contentViewController = NSHostingController(rootView: root)
+        window.center()
+        window.isReleasedWhenClosed = false
+        dashboardWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        Task { await refreshUsage() }
     }
 
     /// Triages a Claude API error into one of three UI states:
@@ -328,9 +462,19 @@ class StatusBarController: NSObject {
                 await self.refreshUsage()
             }
         }
+        refreshTimer?.tolerance = 30
+
+        vpsRefreshTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.refreshVPS()
+            }
+        }
+        vpsRefreshTimer?.tolerance = 20
     }
 
     deinit {
         refreshTimer?.invalidate()
+        vpsRefreshTimer?.invalidate()
     }
 }

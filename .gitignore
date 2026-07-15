@@ -8,6 +8,8 @@ DerivedData/
 # macOS
 .DS_Store
 *.dSYM
+*.app/
+*.dmg
 
 # Xcode
 xcuserdata/

@@ -4,6 +4,7 @@ struct PopoverView: View {
     @ObservedObject var usageState: UsageState
     let onRefresh: () -> Void
     let onSettings: () -> Void
+    let onDashboard: () -> Void
     let onQuit: () -> Void
 
     var body: some View {
@@ -45,7 +46,18 @@ struct PopoverView: View {
                     .foregroundColor(.secondary)
             }
 
+            if usageState.vpsStatus != nil || usageState.vpsError != nil {
+                Divider()
+                VPSCompactCard(usageState: usageState)
+            }
+
             Divider()
+
+            Button(action: onDashboard) {
+                Label("Ouvrir le dashboard", systemImage: "arrow.up.right.square")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
 
             // Footer
             HStack {
@@ -75,7 +87,7 @@ struct PopoverView: View {
             }
         }
         .padding()
-        .frame(width: 280)
+        .frame(width: 380)
     }
 
     private func timeAgo(_ date: Date) -> String {
@@ -86,6 +98,60 @@ struct PopoverView: View {
             return "il y a \(Int(interval / 60)) min"
         } else {
             return "il y a \(Int(interval / 3600))h"
+        }
+    }
+}
+
+struct VPSCompactCard: View {
+    @ObservedObject var usageState: UsageState
+
+    var body: some View {
+        if let status = usageState.vpsStatus {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 9) {
+                    Circle()
+                        .fill(status.isHealthy ? UsagePalette.green : UsagePalette.orange)
+                        .frame(width: 9, height: 9)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("VPS Contabo")
+                            .font(.body.bold())
+                        Text("CPU \(percent(status.vps.cpuPercent))   RAM \(percent(status.vps.ramPercent))   SSD \(percent(status.vps.diskPercent))")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(.secondary)
+                        Text("\(status.sites.healthy)/\(status.sites.total) sites · \(status.services.healthy)/\(status.services.total) services")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    MiniSparkline(samples: usageState.vpsHistory.suffix(24).map(\.cpu))
+                        .frame(width: 84, height: 34)
+                }
+            }
+        } else if let error = usageState.vpsError {
+            Label(error, systemImage: "server.rack")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private func percent(_ value: Double) -> String { "\(Int(value.rounded()))%" }
+}
+
+struct MiniSparkline: View {
+    let samples: [Double]
+
+    var body: some View {
+        GeometryReader { geometry in
+            Path { path in
+                guard samples.count > 1 else { return }
+                for (index, value) in samples.enumerated() {
+                    let x = geometry.size.width * CGFloat(index) / CGFloat(samples.count - 1)
+                    let y = geometry.size.height * (1 - CGFloat(min(max(value, 0), 100)) / 100)
+                    if index == 0 { path.move(to: CGPoint(x: x, y: y)) }
+                    else { path.addLine(to: CGPoint(x: x, y: y)) }
+                }
+            }
+            .stroke(UsagePalette.green, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
         }
     }
 }
@@ -356,11 +422,22 @@ struct SettingsViewWrapper: View {
     let onCancel: () -> Void
 
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 12) {
             Text("Configuration")
                 .font(.headline)
 
             Divider()
+
+            Toggle(isOn: $settingsState.claudeOAuthEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Utiliser la connexion Claude Code")
+                    Text("Une autorisation Keychain unique peut être demandée à la sauvegarde.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("Organization ID")
@@ -383,6 +460,21 @@ struct SettingsViewWrapper: View {
             Text("Copiez: sessionKey=sk-ant-sid01-...")
                 .font(.caption2)
                 .foregroundColor(.secondary)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("VPS Contabo")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("https://status.patronusguardian.org", text: $settingsState.vpsBaseURL)
+                    .textFieldStyle(.roundedBorder)
+                SecureField("Token API lecture seule", text: $settingsState.vpsAPIToken)
+                    .textFieldStyle(.roundedBorder)
+                Text("Le token reste dans le Keychain de l’app.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
 
             Divider()
 
@@ -414,11 +506,43 @@ struct SettingsViewWrapper: View {
 
             Divider()
 
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Icône de la barre des menus")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                MenuBarIconPicker(selection: $settingsState.menuBarIcon)
+                Text("L’icône sera appliquée après la sauvegarde.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+            Divider()
+
             Toggle(isOn: $settingsState.notchOverlayEnabled) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Overlay sous l'encoche")
                         .font(.body)
                     Text("Affiche l'usage au survol du haut de l'écran (Mac notch).")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+
+            Toggle(isOn: $settingsState.alertsEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Alertes de seuil")
+                    Text("macOS demandera l’autorisation uniquement lors de l’activation.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+
+            Toggle(isOn: $settingsState.launchAtLoginEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Ouvrir à la connexion")
+                    Text("Utilise le service de connexion natif de macOS.")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -434,6 +558,46 @@ struct SettingsViewWrapper: View {
             }
         }
         .padding()
-        .frame(width: 320)
+        }
+        .frame(width: 360, height: 600)
+    }
+}
+
+private struct MenuBarIconPicker: View {
+    @Binding var selection: MenuBarIcon
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 6)
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 6) {
+            ForEach(MenuBarIcon.allCases) { icon in
+                Button {
+                    selection = icon
+                } label: {
+                    Group {
+                        if let symbolName = icon.systemSymbolName {
+                            Image(systemName: symbolName)
+                        } else {
+                            Text("◐")
+                                .font(.system(size: 14, weight: .medium, design: .monospaced))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 28)
+                    .foregroundColor(selection == icon ? .accentColor : .primary)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(selection == icon ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.08))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(selection == icon ? Color.accentColor : Color.clear, lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                .help(icon.label)
+                .accessibilityLabel(icon.label)
+                .accessibilityAddTraits(selection == icon ? .isSelected : [])
+            }
+        }
     }
 }

@@ -2,13 +2,13 @@
 set -e
 
 APP_NAME="ClaudeUsageBar"
-BUNDLE_ID="com.louismasson.claudeusagebar"
+BUNDLE_ID="com.louismasson.ClaudeUsageBar"
 VERSION="${VERSION:-1.0.0}"
 BUILD_DIR=".build/release"
 APP_DIR="$APP_NAME.app/Contents"
 
 echo "==> Building $APP_NAME $VERSION..."
-swift build -c release
+swift build --disable-sandbox -c release
 
 echo "==> Creating .app bundle..."
 rm -rf "$APP_NAME.app"
@@ -35,8 +35,9 @@ cat > "$APP_DIR/Info.plist" << EOF
 </plist>
 EOF
 
-echo "==> Ad-hoc signing..."
-codesign --force --deep --sign - "$APP_NAME.app"
+SIGN_IDENTITY="${SIGN_IDENTITY:--}"
+echo "==> Signing with identity: $SIGN_IDENTITY"
+codesign --force --deep --options runtime --sign "$SIGN_IDENTITY" "$APP_NAME.app"
 
 echo "==> Creating DMG..."
 hdiutil create -volname "$APP_NAME" -srcfolder "$APP_NAME.app" \

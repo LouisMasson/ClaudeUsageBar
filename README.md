@@ -1,8 +1,8 @@
-# Claude Usage Bar
+# AI Usage Monitor (ClaudeUsageBar)
 
 **[🌐 Website](https://claudeusagebar.louismasson.me)** · **[⬇️ Download .dmg](https://github.com/LouisMasson/ClaudeUsageBar/releases/latest)**
 
-A lightweight macOS menu bar app to monitor your Claude Max subscription usage in real-time.
+A lightweight macOS menu bar app to monitor Codex, Claude, OpenRouter, Cline and a VPS from one place.
 
 ![Claude Usage Bar Screenshot](assets/screenshot.png)
 
@@ -11,6 +11,7 @@ A lightweight macOS menu bar app to monitor your Claude Max subscription usage i
 - **Menu bar indicator** showing current session usage percentage, plus a forward-looking projection at reset (e.g. `◐ 67% → 89%`)
 - **Burn-rate projection** on every bucket — linear projection of where utilization will land at the next reset, expressed in the same `%` unit Anthropic uses. Color-coded green / orange / red by projected value so you see at a glance whether you'll hit the limit before reset.
 - **Detailed popover** with all usage metrics:
+  - Codex account limits and cumulative token usage from the local Codex app server
   - Session (5h) usage with reset countdown and projection
   - Weekly limits for all models (with projection when consumption is active)
   - Sonnet-only usage (with projection)
@@ -28,6 +29,7 @@ A lightweight macOS menu bar app to monitor your Claude Max subscription usage i
 
 - macOS 12.0+ (Monterey or later)
 - A Claude Max subscription
+- *(Optional)* Codex or ChatGPT Desktop installed for Codex limits and token activity
 - *(Optional)* An [OpenRouter](https://openrouter.ai) account with an API key
 - Xcode Command Line Tools (for building)
 

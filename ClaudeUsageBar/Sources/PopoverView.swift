@@ -11,10 +11,15 @@ struct PopoverView: View {
         VStack(alignment: .leading, spacing: 12) {
             // Header
             HStack {
-                Image(systemName: "sparkles")
-                    .foregroundColor(.purple)
-                Text("Claude Usage")
-                    .font(.headline)
+                Image(systemName: "gauge")
+                    .foregroundColor(.accentColor)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("AI Usage Monitor")
+                        .font(.headline)
+                    Text("IA, crédits et infrastructure")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
                 Spacer()
                 if usageState.isOffline {
                     // Discrete offline badge — keeps the cached data visible rather
@@ -33,23 +38,30 @@ struct PopoverView: View {
 
             Divider()
 
-            if let error = usageState.error {
-                ErrorView(message: error, onRetry: onRefresh)
-            } else if usageState.usage != nil || usageState.clineUsage != nil || usageState.openRouterCredits != nil || usageState.cookieExpired {
-                // Show the full details view whenever there is anything to display —
-                // including when the Claude cookie is expired (Claude buckets show
-                // "N/A" while Cline/OpenRouter stay visible). We never block the whole
-                // popover just because one service is down.
-                UsageDetailsView(usageState: usageState, onSettings: onSettings)
-            } else {
-                Text("Chargement...")
-                    .foregroundColor(.secondary)
-            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if usageState.usage != nil
+                        || usageState.codexUsage != nil
+                        || usageState.clineUsage != nil
+                        || usageState.openRouterCredits != nil
+                        || usageState.cookieExpired
+                        || usageState.codexError != nil
+                        || usageState.error != nil {
+                        UsageDetailsView(usageState: usageState, onSettings: onSettings)
+                    } else {
+                        Text("Chargement…")
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                    }
 
-            if usageState.vpsStatus != nil || usageState.vpsError != nil {
-                Divider()
-                VPSCompactCard(usageState: usageState)
+                    if usageState.vpsStatus != nil || usageState.vpsError != nil {
+                        Divider()
+                        VPSCompactCard(usageState: usageState)
+                    }
+                }
             }
+            .frame(maxHeight: 485)
 
             Divider()
 
@@ -162,52 +174,71 @@ struct UsageDetailsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Session actuelle (5h)
-            UsageRow(
-                title: "Session (5h)",
-                utilization: usageState.sessionUtilization,
-                resetTime: usageState.sessionResetTime,
-                isPrimary: true,
-                projectedAtReset: usageState.sessionProjectedUtilization,
-                isNA: usageState.cookieExpired
-            )
-
-            // Limites hebdomadaires
-            Text("HEBDOMADAIRE")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .padding(.top, 4)
-
-            UsageRow(
-                title: "Tous modeles",
-                utilization: usageState.weeklyUtilization,
-                resetTime: usageState.weeklyResetTime,
-                projectedAtReset: usageState.weeklyProjectedUtilization,
-                isNA: usageState.cookieExpired
-            )
-
-            // Discrete "cookie expired" notice under the Claude section, so the
-            // user understands why buckets are N/A without blocking the rest.
-            if usageState.cookieExpired {
-                Button(action: onSettings) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "lock.rotation")
-                            .font(.caption2)
-                        Text("Session Claude expirée — mettre à jour")
-                            .font(.caption2)
-                    }
-                    .foregroundColor(UsagePalette.orange)
+            if let codex = usageState.codexUsage {
+                ProviderHeader(title: "Codex", symbol: "terminal", detail: codex.rateLimits.planType?.capitalized)
+                ForEach(codex.windows) { window in
+                    UsageRow(
+                        title: window.label,
+                        utilization: window.usedPercent,
+                        resetTime: window.resetLabel,
+                        isPrimary: codex.windows.first?.id == window.id
+                    )
                 }
-                .buttonStyle(.borderless)
+                HStack {
+                    Text("Tokens cumulés")
+                    Spacer()
+                    Text(compact(codex.tokenUsage.summary.lifetimeTokens ?? 0))
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+            } else if let error = usageState.codexError {
+                ProviderHeader(title: "Codex", symbol: "terminal")
+                Text(error).font(.caption2).foregroundColor(.secondary)
+            }
+
+            if usageState.usage != nil || usageState.cookieExpired || usageState.error != nil {
+                Divider()
+                ProviderHeader(title: "Claude", symbol: "sparkles")
+                if usageState.usage != nil || usageState.cookieExpired {
+                    UsageRow(
+                        title: "Session 5h",
+                        utilization: usageState.sessionUtilization,
+                        resetTime: usageState.sessionResetTime,
+                        isPrimary: true,
+                        projectedAtReset: usageState.sessionProjectedUtilization,
+                        isNA: usageState.cookieExpired
+                    )
+
+                    UsageRow(
+                        title: "Hebdomadaire",
+                        utilization: usageState.weeklyUtilization,
+                        resetTime: usageState.weeklyResetTime,
+                        projectedAtReset: usageState.weeklyProjectedUtilization,
+                        isNA: usageState.cookieExpired
+                    )
+                } else if let error = usageState.error {
+                    Text(error).font(.caption2).foregroundColor(.secondary)
+                }
+
+                if usageState.cookieExpired {
+                    Button(action: onSettings) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "lock.rotation")
+                                .font(.caption2)
+                            Text("Session Claude expirée — mettre à jour")
+                                .font(.caption2)
+                        }
+                        .foregroundColor(UsagePalette.orange)
+                    }
+                    .buttonStyle(.borderless)
+                }
             }
 
             // OpenRouter — only rendered when a key is configured and at least
             // one fetch has completed (success or failure).
             if usageState.openRouterCredits != nil || usageState.openRouterError != nil {
-                Text("OPENROUTER")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.top, 4)
+                Divider()
+                ProviderHeader(title: "OpenRouter", symbol: "network")
 
                 if usageState.openRouterCredits != nil {
                     CreditsRow(
@@ -229,10 +260,8 @@ struct UsageDetailsView: View {
             // Cline Pass — only rendered when a cookie is configured and at least
             // one fetch has completed (success or failure).
             if usageState.clineUsage != nil || usageState.clineError != nil {
-                Text("CLINE PASS")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.top, 4)
+                Divider()
+                ProviderHeader(title: "Cline Pass", symbol: "chevron.left.forwardslash.chevron.right")
 
                 if usageState.clineUsage != nil {
                     UsageRow(
@@ -254,6 +283,31 @@ struct UsageDetailsView: View {
                         .font(.caption2)
                         .foregroundColor(.red)
                 }
+            }
+        }
+    }
+
+    private func compact(_ value: Int) -> String {
+        switch value {
+        case 1_000_000_000...: return String(format: "%.1fB", Double(value) / 1_000_000_000)
+        case 1_000_000...: return String(format: "%.1fM", Double(value) / 1_000_000)
+        case 1_000...: return String(format: "%.1fK", Double(value) / 1_000)
+        default: return "\(value)"
+        }
+    }
+}
+
+struct ProviderHeader: View {
+    let title: String
+    let symbol: String
+    var detail: String? = nil
+
+    var body: some View {
+        HStack {
+            Label(title, systemImage: symbol).font(.body.bold())
+            Spacer()
+            if let detail {
+                Text(detail).font(.caption).foregroundColor(.secondary)
             }
         }
     }

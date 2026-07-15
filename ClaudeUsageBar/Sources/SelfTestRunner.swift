@@ -6,6 +6,7 @@ enum SelfTestRunner {
         try testVPSStatusDecoding()
         try testOpenRouterActivitySummary()
         try testOpenRouterAnalyticsDecoding()
+        try testCodexUsageDecoding()
         try testLegacyCredentialMigration()
         FileHandle.standardOutput.write(Data("ClaudeUsageBar self-tests: OK\n".utf8))
     }
@@ -50,6 +51,18 @@ enum SelfTestRunner {
         try require(row.requests == 12, "OpenRouter string request count")
         try require(row.tokens == 9_800, "OpenRouter string token count")
         try require(row.cacheHitRate == 0.75, "OpenRouter cache hit rate")
+    }
+
+    private static func testCodexUsageDecoding() throws {
+        let rateJSON = #"{"rateLimits":{"limitId":"codex","limitName":null,"primary":{"usedPercent":19,"windowDurationMins":10080,"resetsAt":1784740062},"secondary":null,"credits":{"hasCredits":false,"unlimited":false,"balance":"0"},"planType":"plus"},"rateLimitsByLimitId":null}"#
+        let rates = try JSONDecoder().decode(CodexRateLimitsResponse.self, from: Data(rateJSON.utf8))
+        try require(rates.codex.primary?.usedPercent == 19, "Codex rate limit percent")
+        try require(rates.codex.primary?.label == "Hebdomadaire", "Codex rate limit label")
+
+        let usageJSON = #"{"summary":{"lifetimeTokens":49907696,"peakDailyTokens":16708267,"longestRunningTurnSec":703,"currentStreakDays":0,"longestStreakDays":3},"dailyUsageBuckets":[{"startDate":"2026-07-13","tokens":2662448}]}"#
+        let usage = try JSONDecoder().decode(CodexTokenUsageResponse.self, from: Data(usageJSON.utf8))
+        try require(usage.summary.lifetimeTokens == 49_907_696, "Codex lifetime tokens")
+        try require(usage.dailyUsageBuckets?.first?.tokens == 2_662_448, "Codex daily tokens")
     }
 
     private static func requireValue<T>(_ value: T?, _ message: String) throws -> T {

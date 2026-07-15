@@ -23,6 +23,7 @@ struct DashboardView: View {
                 }
 
                 aiSection
+                codexSection
                 openRouterActivitySection
                 vpsSection
             }
@@ -150,6 +151,16 @@ struct DashboardView: View {
             Label("Consommation IA", systemImage: "sparkles")
                 .font(.title2.bold())
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
+                if let codex = usageState.codexUsage {
+                    ForEach(codex.windows) { window in
+                        DashboardMetricCard(
+                            title: "Codex · \(window.label)",
+                            value: "\(window.usedPercent)%",
+                            detail: "Reset \(window.resetLabel)",
+                            progress: Double(window.usedPercent)
+                        )
+                    }
+                }
                 DashboardMetricCard(
                     title: "Claude · Session 5h",
                     value: "\(usageState.sessionUtilization)%",
@@ -211,6 +222,59 @@ struct DashboardView: View {
     }
 
     @ViewBuilder
+    private var codexSection: some View {
+        if let codex = usageState.codexUsage {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Label("Activité Codex", systemImage: "terminal")
+                        .font(.title2.bold())
+                    Spacer()
+                    Text(codex.rateLimits.planType?.uppercased() ?? "CODEX")
+                        .font(.caption.bold())
+                        .foregroundColor(.secondary)
+                }
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
+                    CodexStatCard(
+                        title: "Tokens cumulés",
+                        value: compact(codex.tokenUsage.summary.lifetimeTokens ?? 0),
+                        detail: "Depuis le début du suivi local"
+                    )
+                    CodexStatCard(
+                        title: "Pic journalier",
+                        value: compact(codex.tokenUsage.summary.peakDailyTokens ?? 0),
+                        detail: "Maximum observé"
+                    )
+                    CodexStatCard(
+                        title: "Plus long traitement",
+                        value: duration(codex.tokenUsage.summary.longestRunningTurnSec ?? 0),
+                        detail: "Durée d’un turn"
+                    )
+                    CodexStatCard(
+                        title: "Série active",
+                        value: "\(codex.tokenUsage.summary.currentStreakDays ?? 0) j",
+                        detail: "Record \(codex.tokenUsage.summary.longestStreakDays ?? 0) jours"
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Tokens quotidiens").font(.headline)
+                    CodexTokenSparkline(samples: codex.tokenUsage.dailyUsageBuckets?.map { Double($0.tokens) } ?? [])
+                        .frame(height: 105)
+                        .padding(12)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.04)))
+                }
+            }
+        } else if let error = usageState.codexError {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Activité Codex", systemImage: "terminal")
+                    .font(.title2.bold())
+                Text(error).font(.caption).foregroundColor(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
     private var vpsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label("VPS Contabo", systemImage: "server.rack")
@@ -262,6 +326,47 @@ struct DashboardView: View {
         case 1_000_000...: return String(format: "%.1fM", Double(value) / 1_000_000)
         case 1_000...: return String(format: "%.1fK", Double(value) / 1_000)
         default: return "\(value)"
+        }
+    }
+
+    private func duration(_ seconds: Int) -> String {
+        if seconds >= 60 { return "\(seconds / 60) min \(seconds % 60) s" }
+        return "\(seconds) s"
+    }
+}
+
+struct CodexStatCard: View {
+    let title: String
+    let value: String
+    let detail: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.headline).foregroundColor(.secondary)
+            Text(value).font(.system(size: 27, weight: .bold, design: .rounded))
+            Text(detail).font(.caption).foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.05)))
+    }
+}
+
+struct CodexTokenSparkline: View {
+    let samples: [Double]
+
+    var body: some View {
+        GeometryReader { geometry in
+            Path { path in
+                guard samples.count > 1, let maximum = samples.max(), maximum > 0 else { return }
+                for (index, value) in samples.enumerated() {
+                    let x = geometry.size.width * CGFloat(index) / CGFloat(samples.count - 1)
+                    let y = geometry.size.height * (1 - CGFloat(value / maximum))
+                    if index == 0 { path.move(to: CGPoint(x: x, y: y)) }
+                    else { path.addLine(to: CGPoint(x: x, y: y)) }
+                }
+            }
+            .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
         }
     }
 }

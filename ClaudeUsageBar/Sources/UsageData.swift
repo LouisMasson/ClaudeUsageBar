@@ -536,6 +536,9 @@ class UsageState: ObservableObject {
     @Published var openRouterActivityError: String?
     @Published var isLoadingOpenRouterActivity = false
 
+    @Published var codexUsage: CodexUsageSnapshot?
+    @Published var codexError: String?
+
     @Published var clineUsage: ClineUsageResponse?
     @Published var clineError: String?
 

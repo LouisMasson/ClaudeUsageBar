@@ -68,7 +68,7 @@ class StatusBarController: NSObject {
             button.image?.isTemplate = true
             button.imagePosition = .imageOnly
             button.attributedTitle = NSAttributedString(string: "")
-            button.toolTip = "Claude Usage — \(icon.label)"
+            button.toolTip = "AI Usage Monitor — \(icon.label)"
             return
         }
 
@@ -86,7 +86,7 @@ class StatusBarController: NSObject {
         button.image = nil
         button.imagePosition = .noImage
         button.attributedTitle = attributed
-        button.toolTip = "Claude Usage — \(icon.label)"
+        button.toolTip = "AI Usage Monitor — \(icon.label)"
     }
 
     @objc private func togglePopover() {
@@ -222,10 +222,8 @@ class StatusBarController: NSObject {
         let oauthEnabled = UserDefaults.standard.object(forKey: SettingsState.claudeOAuthKey) == nil
             ? true
             : UserDefaults.standard.bool(forKey: SettingsState.claudeOAuthKey)
-        guard oauthEnabled || (!creds.organizationId.isEmpty && !creds.sessionCookie.isEmpty) else {
-            usageState.error = "Configuration requise"
-            return
-        }
+        let hasClaudeCredentials = oauthEnabled
+            || (!creds.organizationId.isEmpty && !creds.sessionCookie.isEmpty)
 
         usageState.isLoading = true
         usageState.error = nil
@@ -234,10 +232,14 @@ class StatusBarController: NSObject {
         let clineCookie = creds.clineSessionCookie.isEmpty ? nil : creds.clineSessionCookie
 
         // Fire all requests concurrently.
-        async let claudeResult = fetchClaudeUsage(
-            credentials: creds,
-            oauthEnabled: oauthEnabled
-        )
+        async let claudeResult: Result<UsageResponse, Error>? = {
+            guard hasClaudeCredentials else { return nil }
+            do {
+                return .success(try await fetchClaudeUsage(credentials: creds, oauthEnabled: oauthEnabled))
+            } catch {
+                return .failure(error)
+            }
+        }()
         async let openRouterResult: Result<OpenRouterCredits, Error>? = {
             guard let key = openRouterKey else { return nil }
             do {
@@ -256,12 +258,19 @@ class StatusBarController: NSObject {
                 return .failure(error)
             }
         }()
+        async let codexResult: Result<CodexUsageSnapshot, Error> = {
+            do {
+                return .success(try await CodexUsageService.shared.fetchUsage())
+            } catch {
+                return .failure(error)
+            }
+        }()
         async let vpsResult: Void = refreshVPS(using: creds)
 
-        // Claude (primary) — errors are triaged into cookie-expired / offline /
-        // hard-error so the UI can react appropriately.
-        do {
-            let usage = try await claudeResult
+        // Claude is optional: a missing Claude setup no longer prevents Codex,
+        // OpenRouter, Cline or VPS data from refreshing.
+        switch await claudeResult {
+        case .success(let usage):
             usageState.usage = usage
             usageState.lastUpdated = Date()
             usageState.cookieExpired = false
@@ -290,8 +299,12 @@ class StatusBarController: NSObject {
                 claude5h: usage.fiveHour?.utilization ?? 0,
                 cline5h: usageState.clineFiveHourUtilization
             )
-        } catch {
+        case .failure(let error):
             handleClaudeError(error)
+        case .none:
+            usageState.usage = nil
+            usageState.cookieExpired = false
+            usageState.error = nil
         }
 
         // OpenRouter (optional) — isolated from Claude's state.
@@ -339,6 +352,16 @@ class StatusBarController: NSObject {
             if case APIError.unauthorized = error {
                 NotificationManager.shared.notifyCookieExpired(service: "Cline Pass")
             }
+        }
+
+        switch await codexResult {
+        case .success(let snapshot):
+            usageState.codexUsage = snapshot
+            usageState.codexError = nil
+            usageState.lastUpdated = Date()
+        case .failure(let error):
+            // Keep the last valid values if the local Codex service is busy.
+            usageState.codexError = error.localizedDescription
         }
 
         usageState.isLoading = false
@@ -419,7 +442,7 @@ class StatusBarController: NSObject {
             backing: .buffered,
             defer: false
         )
-        window.title = "Claude Usage Bar — Dashboard"
+        window.title = "AI Usage Monitor — Dashboard"
         window.minSize = NSSize(width: 760, height: 520)
         window.contentViewController = NSHostingController(rootView: root)
         window.center()
@@ -434,9 +457,8 @@ class StatusBarController: NSObject {
         }
     }
 
-    /// OpenRouter analytics can fan out into one request per API key, so it is
-    /// intentionally dashboard-only and cached for 15 minutes. The lightweight
-    /// credit balance remains part of the normal five-minute menu refresh.
+    /// OpenRouter analytics is dashboard-only and cached for 15 minutes. The
+    /// lightweight credit balance remains part of the normal menu refresh.
     func refreshOpenRouterActivity(force: Bool = false) async {
         if !force,
            let snapshot = usageState.openRouterActivity,

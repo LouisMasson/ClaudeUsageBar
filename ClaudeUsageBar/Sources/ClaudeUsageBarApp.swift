@@ -5,6 +5,18 @@ struct ClaudeUsageBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     init() {
+        if CommandLine.arguments.contains("--codex-live-test") {
+            do {
+                let snapshot = try CodexUsageService.fetchSynchronouslyForTesting()
+                let percent = snapshot.windows.first?.usedPercent ?? 0
+                let tokens = snapshot.tokenUsage.summary.lifetimeTokens ?? 0
+                FileHandle.standardOutput.write(Data("Codex live test: \(percent)% · \(tokens) tokens\n".utf8))
+                exit(0)
+            } catch {
+                FileHandle.standardError.write(Data("Codex live test failed: \(error.localizedDescription)\n".utf8))
+                exit(1)
+            }
+        }
         guard CommandLine.arguments.contains("--self-test") else { return }
         do {
             try SelfTestRunner.run()

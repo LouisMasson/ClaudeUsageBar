@@ -25,11 +25,56 @@ struct DashboardView: View {
                 aiSection
                 codexSection
                 openRouterActivitySection
+                websiteAnalyticsSection
                 vpsSection
             }
             .padding(28)
         }
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    @ViewBuilder
+    private var websiteAnalyticsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Website Analytics", systemImage: "chart.bar.xaxis")
+                    .font(.title2.bold())
+                Spacer()
+                Link(destination: URL(string: "https://analytics.patronusguardian.org")!) {
+                    Label("Ouvrir Plausible", systemImage: "arrow.up.right.square")
+                }
+            }
+
+            if let status = usageState.vpsStatus {
+                let sites = websiteAnalyticsSites(from: status)
+                if sites.isEmpty {
+                    Text("Les statistiques Plausible ne sont pas encore disponibles.")
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(24)
+                        .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.04)))
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 12)], spacing: 12) {
+                        ForEach(sites) { site in
+                            if let analytics = site.analytics {
+                                WebsiteAnalyticsCard(
+                                    title: websiteDisplayName(for: site.name),
+                                    domain: site.name,
+                                    analytics: analytics,
+                                    isAvailable: site.isHealthy
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                Text(usageState.vpsError ?? "Connectez l’API VPS pour charger les statistiques Plausible.")
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(24)
+                    .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.04)))
+            }
+        }
     }
 
     @ViewBuilder
@@ -285,13 +330,6 @@ struct DashboardView: View {
                     DashboardMetricCard(title: "RAM", value: percent(status.vps.ramPercent), detail: "Mémoire utilisée", progress: status.vps.ramPercent)
                     DashboardMetricCard(title: "SSD", value: percent(status.vps.diskPercent), detail: "Espace utilisé", progress: status.vps.diskPercent)
                     DashboardMetricCard(title: "Disponibilité", value: "\(status.sites.healthy)/\(status.sites.total)", detail: "Sites · \(status.services.healthy)/\(status.services.total) services", progress: status.sites.total == 0 ? 0 : Double(status.sites.healthy) / Double(status.sites.total) * 100)
-                    if let analytics = status.sites.items.first(where: { $0.name == "louismasson.me" })?.analytics {
-                        CodexStatCard(
-                            title: "Visiteurs · louismasson.me",
-                            value: compact(analytics.thirtyDays.visitors),
-                            detail: "30 jours · \(analytics.today.visitors) aujourd’hui · \(analytics.sevenDays.visitors) sur 7 j"
-                        )
-                    }
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -339,6 +377,73 @@ struct DashboardView: View {
     private func duration(_ seconds: Int) -> String {
         if seconds >= 60 { return "\(seconds / 60) min \(seconds % 60) s" }
         return "\(seconds) s"
+    }
+
+    private func websiteAnalyticsSites(from status: VPSMenuStatus) -> [VPSAvailabilityItem] {
+        let order = ["louismasson.me", "thecatalogue.studio", "nuitsansoeufdoux.com"]
+        return order.compactMap { domain in
+            status.sites.items.first { $0.name == domain && $0.analytics != nil }
+        }
+    }
+
+    private func websiteDisplayName(for domain: String) -> String {
+        switch domain {
+        case "thecatalogue.studio": return "The Catalogue"
+        case "nuitsansoeufdoux.com": return "Nuit Sans Œuf Doux"
+        default: return "Louis Masson"
+        }
+    }
+}
+
+struct WebsiteAnalyticsCard: View {
+    let title: String
+    let domain: String
+    let analytics: VPSPlausibleAnalytics
+    let isAvailable: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(isAvailable ? UsagePalette.green : UsagePalette.red)
+                    .frame(width: 8, height: 8)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.headline)
+                    Text(domain).font(.caption).foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+
+            HStack(spacing: 0) {
+                periodMetric(title: "Aujourd’hui", value: analytics.today.visitors)
+                Divider().frame(height: 38)
+                periodMetric(title: "7 jours", value: analytics.sevenDays.visitors)
+                Divider().frame(height: 38)
+                periodMetric(title: "30 jours", value: analytics.thirtyDays.visitors)
+            }
+
+            Label(
+                "\(analytics.thirtyDays.pageviews) pages vues sur 30 jours",
+                systemImage: "eye"
+            )
+            .font(.caption)
+            .foregroundColor(.secondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.05)))
+    }
+
+    private func periodMetric(title: String, value: Int) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("\(value)")
+                .font(.system(size: 23, weight: .bold, design: .rounded))
+                .monospacedDigit()
+            Text(title)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

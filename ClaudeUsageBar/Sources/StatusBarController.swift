@@ -42,7 +42,12 @@ class StatusBarController: NSObject {
         let popoverView = PopoverView(
             usageState: usageState,
             onRefresh: { [weak self] in
-                Task { await self?.refreshUsage() }
+                Task {
+                    guard let self else { return }
+                    async let usageRefresh: Void = self.refreshUsage()
+                    async let githubRefresh: Void = self.refreshGitHubActivity(force: true)
+                    _ = await (usageRefresh, githubRefresh)
+                }
             },
             onSettings: { [weak self] in
                 self?.showSettings()
@@ -96,6 +101,7 @@ class StatusBarController: NSObject {
             // Close settings popover if open
             settingsPopover?.performClose(nil)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            Task { await refreshGitHubActivity() }
         }
     }
 

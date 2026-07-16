@@ -55,6 +55,13 @@ struct PopoverView: View {
                             .padding()
                     }
 
+                    if usageState.githubActivity != nil
+                        || usageState.githubActivityError != nil
+                        || usageState.isLoadingGitHubActivity {
+                        Divider()
+                        GitHubCompactCard(usageState: usageState)
+                    }
+
                     if usageState.vpsStatus != nil || usageState.vpsError != nil {
                         Divider()
                         VPSCompactCard(usageState: usageState)
@@ -110,6 +117,57 @@ struct PopoverView: View {
             return "il y a \(Int(interval / 60)) min"
         } else {
             return "il y a \(Int(interval / 3600))h"
+        }
+    }
+}
+
+struct GitHubCompactCard: View {
+    @ObservedObject var usageState: UsageState
+    @AppStorage("popover.githubCollapsed") private var isCollapsed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            CollapsibleProviderHeader(
+                title: "GitHub",
+                symbol: "chevron.left.forwardslash.chevron.right",
+                detail: usageState.githubActivity.map { "\($0.totalContributions) contributions" },
+                isCollapsed: $isCollapsed
+            )
+
+            if !isCollapsed {
+                if let snapshot = usageState.githubActivity {
+                    HStack(spacing: 14) {
+                        compactMetric("Commits", snapshot.commits)
+                        compactMetric("PR", snapshot.pullRequests)
+                        compactMetric("Reviews", snapshot.reviews)
+                        GitHubContributionChart(days: snapshot.days)
+                            .frame(width: 90, height: 34)
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                } else if usageState.isLoadingGitHubActivity {
+                    HStack(spacing: 8) {
+                        ProgressView().scaleEffect(0.7)
+                        Text("Chargement de l’activité…")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                } else if let error = usageState.githubActivityError {
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
+    private func compactMetric(_ title: String, _ value: Int) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text("\(value)")
+                .font(.system(.body, design: .rounded).bold())
+                .monospacedDigit()
+            Text(title)
+                .font(.caption2)
+                .foregroundColor(.secondary)
         }
     }
 }

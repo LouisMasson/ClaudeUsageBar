@@ -3,13 +3,15 @@ import UserNotifications
 
 /// Centralized macOS notification logic for the app.
 ///
-/// Only two notification types are ever fired (by design — avoid notification fatigue):
+/// Three notification families are supported, all deduplicated to avoid fatigue:
 ///
 /// 1. **Critical threshold (90%)** — fired when a 5-hour session (Claude or Cline)
 ///    crosses 90% utilization. Each bucket is notified at most once per crossing;
 ///    it re-arms when utilization drops back below 80% (i.e. a reset occurred).
 /// 2. **Cookie expired** — fired when any API returns 401/403. Once per "session"
 ///    of being expired; re-arms when a refresh succeeds.
+/// 3. **Anomaly opened** — fired once per persisted incident ID. Resolutions stay
+///    in the in-app journal and do not produce another notification.
 ///
 /// **Bundle requirement:** `UNUserNotificationCenter` crashes with an internal
 /// `NSAssertionHandler` failure (which surfaces as `EXC_BAD_ACCESS / SIGSEGV`) when
@@ -86,6 +88,26 @@ final class NotificationManager {
     /// Re-arms the cookie-expired notification so a future 401 can notify again.
     func clearCookieExpired() {
         cookieExpiredNotified = false
+    }
+
+    /// Sends one notification per anomaly occurrence. IDs are persisted so an app
+    /// restart or a server re-sync cannot replay the same incident.
+    func notifyAnomaly(_ event: AnomalyEvent) {
+        guard notificationsEnabled, event.isOpen else { return }
+        let defaultsKey = "notifiedAnomalyIDs"
+        var notified = UserDefaults.standard.stringArray(forKey: defaultsKey) ?? []
+        guard !notified.contains(event.id) else { return }
+        notified.append(event.id)
+        if notified.count > 200 { notified.removeFirst(notified.count - 200) }
+        UserDefaults.standard.set(notified, forKey: defaultsKey)
+
+        let content = UNMutableNotificationContent()
+        content.title = event.isCritical ? "🚨 Anomalie critique" : "⚠️ Anomalie détectée"
+        content.body = event.message
+        content.sound = event.isCritical ? .defaultCritical : .default
+        UNUserNotificationCenter.current().add(UNNotificationRequest(
+            identifier: "anomaly_\(event.id)", content: content, trigger: nil
+        ))
     }
 
     // MARK: - Internal

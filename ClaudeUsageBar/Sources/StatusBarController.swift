@@ -121,12 +121,19 @@ class StatusBarController: NSObject {
             ? true
             : UserDefaults.standard.bool(forKey: SettingsState.claudeOAuthKey)
         settingsState.alertsEnabled = UserDefaults.standard.bool(forKey: SettingsState.alertsKey)
+        settingsState.anomalyProfile = AnomalyProfile(
+            rawValue: UserDefaults.standard.string(forKey: SettingsState.anomalyProfileKey) ?? "balanced"
+        ) ?? .balanced
+        settingsState.vpsAnomaliesEnabled = UserDefaults.standard.object(forKey: SettingsState.vpsAnomaliesKey) == nil
+            ? true : UserDefaults.standard.bool(forKey: SettingsState.vpsAnomaliesKey)
+        settingsState.modelAnomaliesEnabled = UserDefaults.standard.object(forKey: SettingsState.modelAnomaliesKey) == nil
+            ? true : UserDefaults.standard.bool(forKey: SettingsState.modelAnomaliesKey)
         settingsState.launchAtLoginEnabled = LaunchAtLoginManager.isEnabled
         settingsState.notchOverlayEnabled = UserDefaults.standard.bool(forKey: SettingsState.notchOverlayKey)
         settingsState.menuBarIcon = .saved
 
         settingsPopover = NSPopover()
-        settingsPopover.contentSize = NSSize(width: 380, height: 640)
+        settingsPopover.contentSize = NSSize(width: 380, height: 720)
         settingsPopover.behavior = .applicationDefined  // Ne se ferme pas automatiquement
         settingsPopover.animates = true
 
@@ -191,6 +198,9 @@ class StatusBarController: NSObject {
         UserDefaults.standard.set(settingsState.notchOverlayEnabled, forKey: SettingsState.notchOverlayKey)
         UserDefaults.standard.set(settingsState.claudeOAuthEnabled, forKey: SettingsState.claudeOAuthKey)
         UserDefaults.standard.set(settingsState.alertsEnabled, forKey: SettingsState.alertsKey)
+        UserDefaults.standard.set(settingsState.anomalyProfile.rawValue, forKey: SettingsState.anomalyProfileKey)
+        UserDefaults.standard.set(settingsState.vpsAnomaliesEnabled, forKey: SettingsState.vpsAnomaliesKey)
+        UserDefaults.standard.set(settingsState.modelAnomaliesEnabled, forKey: SettingsState.modelAnomaliesKey)
         UserDefaults.standard.set(settingsState.menuBarIcon.rawValue, forKey: MenuBarIcon.preferenceKey)
         if settingsState.alertsEnabled && !alertsWereEnabled {
             NotificationManager.shared.requestPermission()
@@ -205,6 +215,14 @@ class StatusBarController: NSObject {
         settingsPopover?.performClose(nil)
 
         Task {
+            if !vpsToken.isEmpty {
+                _ = try? await VPSAPIService.shared.updateAnomalySettings(
+                    baseURL: creds.vpsBaseURL, token: vpsToken,
+                    profile: settingsState.anomalyProfile,
+                    vpsEnabled: settingsState.vpsAnomaliesEnabled,
+                    modelEnabled: settingsState.modelAnomaliesEnabled
+                )
+            }
             await refreshUsage()
         }
     }
@@ -309,11 +327,7 @@ class StatusBarController: NSObject {
                 projected: usageState.sessionProjectedUtilization
             )
             notchOverlay.refresh()
-            // Critical-threshold notification (90% on the 5h session).
-            NotificationManager.shared.checkCriticalThreshold(
-                claude5h: usage.fiveHour?.utilization ?? 0,
-                cline5h: usageState.clineFiveHourUtilization
-            )
+            notifyNewAnomalies(recordClaudeAnomalies(usage))
         case .failure(let error):
             handleClaudeError(error)
         case .none:
@@ -330,6 +344,10 @@ class StatusBarController: NSObject {
         case .success(let credits):
             usageState.openRouterCredits = credits
             usageState.openRouterError = nil
+            notifyNewAnomalies(usageState.recordQuotaAnomalies(
+                source: "OpenRouter", metric: "credits",
+                utilization: credits.utilization, projected: nil
+            ))
         case .failure(let error):
             usageState.openRouterCredits = nil
             usageState.openRouterError = error.localizedDescription
@@ -356,11 +374,7 @@ class StatusBarController: NSObject {
             if let util = usage.monthly?.percentUsed {
                 usageState.clineMonthlyBurnRate.record(utilization: util)
             }
-            // Re-evaluate critical threshold now that Cline 5h is fresh.
-            NotificationManager.shared.checkCriticalThreshold(
-                claude5h: usageState.sessionUtilization,
-                cline5h: usage.fiveHour?.percentUsed ?? 0
-            )
+            notifyNewAnomalies(recordClineAnomalies(usage))
         case .failure(let error):
             usageState.clineUsage = nil
             usageState.clineError = error.localizedDescription
@@ -374,6 +388,7 @@ class StatusBarController: NSObject {
             usageState.codexUsage = snapshot
             usageState.codexError = nil
             usageState.lastUpdated = Date()
+            notifyNewAnomalies(recordCodexAnomalies(snapshot))
         case .failure(let error):
             // Keep the last valid values if the local Codex service is busy.
             usageState.codexError = error.localizedDescription
@@ -381,6 +396,7 @@ class StatusBarController: NSObject {
 
         usageState.isLoading = false
         _ = await vpsResult
+        await refreshOpenRouterActivity()
     }
 
     private func fetchClaudeUsage(
@@ -428,6 +444,7 @@ class StatusBarController: NSObject {
             usageState.vpsError = nil
             usageState.vpsLastUpdated = Date()
             usageState.recordVPS(status)
+            await syncVPSAnomalies(using: creds)
         } catch {
             usageState.vpsError = error.localizedDescription
         }
@@ -501,8 +518,8 @@ class StatusBarController: NSObject {
         usageState.isLoadingGitHubActivity = false
     }
 
-    /// OpenRouter analytics is dashboard-only and cached for 15 minutes. The
-    /// lightweight credit balance remains part of the normal menu refresh.
+    /// OpenRouter analytics is cached for 15 minutes and refreshes in the
+    /// background when a management key exists, independently of the dashboard.
     func refreshOpenRouterActivity(force: Bool = false) async {
         if !force,
            let snapshot = usageState.openRouterActivity,
@@ -521,11 +538,113 @@ class StatusBarController: NSObject {
         usageState.isLoadingOpenRouterActivity = true
         usageState.openRouterActivityError = nil
         do {
-            usageState.openRouterActivity = try await OpenRouterAPIService.shared.fetchActivitySnapshot(apiKey: key)
+            let snapshot = try await OpenRouterAPIService.shared.fetchActivitySnapshot(apiKey: key)
+            usageState.openRouterActivity = snapshot
+            notifyNewAnomalies(recordOpenRouterActivityAnomalies(snapshot))
         } catch {
             usageState.openRouterActivityError = error.localizedDescription
         }
         usageState.isLoadingOpenRouterActivity = false
+    }
+
+    private func notifyNewAnomalies(_ events: [AnomalyEvent]) {
+        events.forEach { NotificationManager.shared.notifyAnomaly($0) }
+    }
+
+    private func recordClaudeAnomalies(_ usage: UsageResponse) -> [AnomalyEvent] {
+        var opened: [AnomalyEvent] = []
+        if let bucket = usage.fiveHour {
+            opened += usageState.recordQuotaAnomalies(source: "Claude", metric: "session_5h", utilization: bucket.utilization, projected: usageState.sessionProjectedUtilization)
+        }
+        if let bucket = usage.sevenDay {
+            opened += usageState.recordQuotaAnomalies(source: "Claude", metric: "weekly", utilization: bucket.utilization, projected: usageState.weeklyProjectedUtilization)
+        }
+        if let bucket = usage.sevenDaySonnet {
+            opened += usageState.recordQuotaAnomalies(source: "Claude Sonnet", metric: "weekly", utilization: bucket.utilization, projected: usageState.sonnetProjectedUtilization)
+        }
+        if let bucket = usage.sevenDayOmelette {
+            opened += usageState.recordQuotaAnomalies(source: "Claude Design", metric: "weekly", utilization: bucket.utilization, projected: usageState.designProjectedUtilization)
+        }
+        return opened
+    }
+
+    private func recordClineAnomalies(_ usage: ClineUsageResponse) -> [AnomalyEvent] {
+        var opened: [AnomalyEvent] = []
+        if let bucket = usage.fiveHour {
+            opened += usageState.recordQuotaAnomalies(source: "Cline", metric: "session_5h", utilization: bucket.percentUsed, projected: usageState.clineFiveHourProjectedUtilization)
+        }
+        if let bucket = usage.weekly {
+            opened += usageState.recordQuotaAnomalies(source: "Cline", metric: "weekly", utilization: bucket.percentUsed, projected: usageState.clineWeeklyProjectedUtilization)
+        }
+        if let bucket = usage.monthly {
+            opened += usageState.recordQuotaAnomalies(source: "Cline", metric: "monthly", utilization: bucket.percentUsed, projected: usageState.clineMonthlyProjectedUtilization)
+        }
+        return opened
+    }
+
+    private func recordCodexAnomalies(_ snapshot: CodexUsageSnapshot) -> [AnomalyEvent] {
+        var opened: [AnomalyEvent] = []
+        for window in snapshot.windows {
+            opened += usageState.recordQuotaAnomalies(
+                source: "Codex", metric: "window_\(window.windowDurationMins ?? 0)",
+                utilization: window.usedPercent, projected: nil
+            )
+        }
+        if let buckets = snapshot.tokenUsage.dailyUsageBuckets, !buckets.isEmpty {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd"
+            let todayKey = formatter.string(from: Date())
+            let today = buckets.first(where: { $0.startDate == todayKey })?.tokens ?? buckets.first?.tokens ?? 0
+            let previous = buckets.filter { $0.startDate != todayKey }.map { Double($0.tokens) }
+            opened += usageState.recordDailyAnomaly(
+                source: "Codex", metric: "daily_tokens", todayValue: Double(today), previousDays: previous
+            )
+        }
+        return opened
+    }
+
+    private func recordOpenRouterActivityAnomalies(_ snapshot: OpenRouterActivitySnapshot) -> [AnomalyEvent] {
+        let summary = snapshot.summary(days: 7)
+        guard let today = summary.daily.last else { return [] }
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        let isCompleteDay = today.date != formatter.string(from: Date())
+        let previous = summary.daily.dropLast().map(\.spend)
+        let todayModels = snapshot.modelActivities.filter { $0.date == today.date }.sorted { $0.spend > $1.spend }
+        let todayKeys = snapshot.keyActivities.filter { $0.date == today.date }.sorted { $0.spend > $1.spend }
+        return usageState.recordDailyAnomaly(
+            source: "OpenRouter", metric: "daily_spend", todayValue: today.spend,
+            previousDays: previous, attribution: todayModels.first?.name ?? todayKeys.first?.name,
+            isCompleteDay: isCompleteDay
+        )
+    }
+
+    private func syncVPSAnomalies(using creds: KeychainHelper.Credentials) async {
+        let syncKey = "lastVPSAnomalySync"
+        let previousTimestamp = UserDefaults.standard.double(forKey: syncKey)
+        let since = previousTimestamp > 0
+            ? Date(timeIntervalSince1970: previousTimestamp - 300)
+            : Date().addingTimeInterval(-7 * 24 * 3600)
+        do {
+            let response = try await VPSAPIService.shared.fetchAnomalies(
+                baseURL: creds.vpsBaseURL, token: creds.vpsAPIToken, since: since
+            )
+            let firstSync = previousTimestamp == 0
+            let newlyOpened = usageState.mergeServerAnomalies(response.events)
+            usageState.anomalySyncError = nil
+            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: syncKey)
+            if firstSync {
+                if let critical = newlyOpened.filter({ $0.isCritical }).max(by: { $0.startedAt < $1.startedAt }) {
+                    NotificationManager.shared.notifyAnomaly(critical)
+                }
+            } else {
+                notifyNewAnomalies(newlyOpened)
+            }
+        } catch {
+            usageState.anomalySyncError = error.localizedDescription
+        }
     }
 
     /// Triages a Claude API error into one of three UI states:

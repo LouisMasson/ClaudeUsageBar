@@ -506,6 +506,9 @@ class SettingsState: ObservableObject {
     static let notchOverlayKey = "notchOverlayEnabled"
     static let claudeOAuthKey = "claudeOAuthEnabled"
     static let alertsKey = "alertsEnabled"
+    static let anomalyProfileKey = "anomalyProfile"
+    static let vpsAnomaliesKey = "vpsAnomaliesEnabled"
+    static let modelAnomaliesKey = "modelAnomaliesEnabled"
 
     @Published var orgId: String = ""
     @Published var cookie: String = ""
@@ -519,6 +522,13 @@ class SettingsState: ObservableObject {
         ? true
         : UserDefaults.standard.bool(forKey: SettingsState.claudeOAuthKey)
     @Published var alertsEnabled: Bool = UserDefaults.standard.bool(forKey: SettingsState.alertsKey)
+    @Published var anomalyProfile: AnomalyProfile = AnomalyProfile(
+        rawValue: UserDefaults.standard.string(forKey: SettingsState.anomalyProfileKey) ?? "balanced"
+    ) ?? .balanced
+    @Published var vpsAnomaliesEnabled: Bool = UserDefaults.standard.object(forKey: SettingsState.vpsAnomaliesKey) == nil
+        ? true : UserDefaults.standard.bool(forKey: SettingsState.vpsAnomaliesKey)
+    @Published var modelAnomaliesEnabled: Bool = UserDefaults.standard.object(forKey: SettingsState.modelAnomaliesKey) == nil
+        ? true : UserDefaults.standard.bool(forKey: SettingsState.modelAnomaliesKey)
     @Published var launchAtLoginEnabled: Bool = LaunchAtLoginManager.isEnabled
     @Published var notchOverlayEnabled: Bool = UserDefaults.standard.bool(forKey: SettingsState.notchOverlayKey)
     @Published var menuBarIcon: MenuBarIcon = .saved
@@ -551,6 +561,10 @@ class UsageState: ObservableObject {
     @Published var vpsError: String?
     @Published var vpsLastUpdated: Date?
     @Published var vpsHistory: [VPSHistorySample] = VPSHistoryStore.load()
+    @Published var anomalyEvents: [AnomalyEvent] = AnomalyHistoryStore.loadEvents()
+    @Published var anomalySyncError: String?
+
+    let anomalyDetector = LocalAnomalyDetector()
 
     /// True when Claude's API returned 401/403 — the popover swaps to a
     /// "session expired" view with a shortcut to Settings.
@@ -642,6 +656,66 @@ class UsageState: ObservableObject {
             disk: status.vps.diskPercent
         )
         vpsHistory = VPSHistoryStore.append(sample, to: vpsHistory)
+    }
+
+    var openAnomalies: [AnomalyEvent] {
+        anomalyEvents.filter(\.isOpen).sorted {
+            if $0.isCritical != $1.isCritical { return $0.isCritical }
+            return $0.startedAt > $1.startedAt
+        }
+    }
+
+    var sortedAnomalies: [AnomalyEvent] {
+        anomalyEvents.sorted {
+            if $0.isOpen != $1.isOpen { return $0.isOpen }
+            if $0.isCritical != $1.isCritical { return $0.isCritical }
+            return $0.startedAt > $1.startedAt
+        }
+    }
+
+    func mergeServerAnomalies(_ incoming: [ServerAnomalyEvent]) -> [AnomalyEvent] {
+        var newlyOpened: [AnomalyEvent] = []
+        for remote in incoming.compactMap({ $0.localEvent() }) {
+            if let index = anomalyEvents.firstIndex(where: { $0.id == remote.id }) {
+                anomalyEvents[index] = remote
+            } else {
+                anomalyEvents.append(remote)
+                if remote.isOpen { newlyOpened.append(remote) }
+            }
+        }
+        let cutoff = Date().addingTimeInterval(-7 * 24 * 3600)
+        anomalyEvents.removeAll { !$0.isOpen && ($0.resolvedAt ?? $0.startedAt) < cutoff }
+        AnomalyHistoryStore.saveEvents(anomalyEvents)
+        return newlyOpened
+    }
+
+    func recordQuotaAnomalies(source: String, metric: String, utilization: Int, projected: Int?) -> [AnomalyEvent] {
+        guard UserDefaults.standard.object(forKey: SettingsState.modelAnomaliesKey) == nil
+                || UserDefaults.standard.bool(forKey: SettingsState.modelAnomaliesKey) else { return [] }
+        let profile = AnomalyProfile(rawValue: UserDefaults.standard.string(forKey: SettingsState.anomalyProfileKey) ?? "balanced") ?? .balanced
+        var events = anomalyEvents
+        let opened = anomalyDetector.recordQuota(
+            source: source, metric: metric, utilization: utilization, projected: projected,
+            profile: profile, events: &events
+        )
+        anomalyEvents = events
+        return opened
+    }
+
+    func recordDailyAnomaly(
+        source: String, metric: String, todayValue: Double,
+        previousDays: [Double], attribution: String? = nil, isCompleteDay: Bool = false
+    ) -> [AnomalyEvent] {
+        guard UserDefaults.standard.object(forKey: SettingsState.modelAnomaliesKey) == nil
+                || UserDefaults.standard.bool(forKey: SettingsState.modelAnomaliesKey) else { return [] }
+        let profile = AnomalyProfile(rawValue: UserDefaults.standard.string(forKey: SettingsState.anomalyProfileKey) ?? "balanced") ?? .balanced
+        var events = anomalyEvents
+        let opened = anomalyDetector.recordDailyPace(
+            source: source, metric: metric, todayValue: todayValue, previousDays: previousDays,
+            attribution: attribution, profile: profile, isCompleteDay: isCompleteDay, events: &events
+        )
+        anomalyEvents = events
+        return opened
     }
 
     // MARK: - Cline Pass

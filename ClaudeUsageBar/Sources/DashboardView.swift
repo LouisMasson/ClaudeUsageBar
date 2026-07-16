@@ -22,6 +22,7 @@ struct DashboardView: View {
                     .disabled(usageState.isLoading)
                 }
 
+                anomalySection
                 aiSection
                 codexSection
                 githubActivitySection
@@ -32,6 +33,59 @@ struct DashboardView: View {
             .padding(28)
         }
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    @ViewBuilder
+    private var anomalySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Journal d’anomalies", systemImage: "waveform.path.ecg.rectangle")
+                    .font(.title2.bold())
+                Spacer()
+                Text("7 derniers jours")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            if usageState.sortedAnomalies.isEmpty {
+                Label("Aucune anomalie détectée", systemImage: "checkmark.circle.fill")
+                    .foregroundColor(UsagePalette.green)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.04)))
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(usageState.sortedAnomalies.prefix(20).enumerated()), id: \.element.id) { index, event in
+                        if index > 0 { Divider() }
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: event.isOpen ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                                .foregroundColor(event.isOpen ? (event.isCritical ? UsagePalette.red : UsagePalette.orange) : UsagePalette.green)
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(event.message).font(.headline)
+                                    Spacer()
+                                    Text(event.isOpen ? "En cours" : "Résolue")
+                                        .font(.caption.bold())
+                                }
+                                HStack(spacing: 8) {
+                                    Text(event.source)
+                                    if let value = event.observedValue {
+                                        Text("Valeur \(value.formatted(.number.precision(.fractionLength(0...2))))")
+                                    }
+                                    if let baseline = event.baseline {
+                                        Text("Habituel \(baseline.low.formatted(.number.precision(.fractionLength(0...1))))–\(baseline.high.formatted(.number.precision(.fractionLength(0...1))))")
+                                    }
+                                    Text(event.startedAt.formatted(date: .abbreviated, time: .shortened))
+                                }
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            }
+                        }
+                        .padding(12)
+                    }
+                }
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.04)))
+            }
+        }
     }
 
     @ViewBuilder

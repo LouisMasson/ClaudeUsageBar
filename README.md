@@ -16,6 +16,7 @@ A lightweight native macOS menu bar app for monitoring AI usage, developer activ
 - GitHub activity summary for the last 30 days
 - Website analytics through a compatible Plausible-backed status API
 - VPS health, availability and local seven-day history
+- Explainable anomaly detection for VPS health and AI usage, with a seven-day incident journal
 - Native dark and light mode support
 - Credentials stored in macOS Keychain
 - Low-frequency background refreshes with caching
@@ -77,7 +78,7 @@ The GitHub live test requires an authenticated GitHub CLI session.
 - Tokens and cookies are never written to logs or committed to the repository
 - The app communicates directly with the configured service APIs
 - GitHub CLI authentication is reused in memory and is not copied into the app Keychain
-- The VPS integration only performs authenticated read-only status requests
+- The VPS integration performs authenticated status reads and can only write the validated anomaly profile (`calm`, `balanced` or `sensitive`) plus the two anomaly enablement switches
 
 ## Project structure
 

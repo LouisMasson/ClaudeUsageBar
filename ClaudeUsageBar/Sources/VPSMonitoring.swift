@@ -7,12 +7,14 @@ struct VPSMenuStatus: Codable {
     let vps: VPSResources
     let sites: VPSAvailability
     let services: VPSAvailability
+    let anomalySummary: VPSAnomalySummary?
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
         case status
         case updatedAt = "updated_at"
         case vps, sites, services
+        case anomalySummary = "anomaly_summary"
     }
 
     var isHealthy: Bool { status == "ok" }
@@ -131,6 +133,46 @@ actor VPSAPIService {
         default:
             throw APIError.serverError(http.statusCode)
         }
+    }
+
+    func fetchAnomalies(baseURL: String, token: String, since: Date?) async throws -> VPSAnomaliesResponse {
+        let normalized = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard var components = URLComponents(string: normalized + "/api/anomalies") else {
+            throw APIError.invalidURL
+        }
+        if let since {
+            components.queryItems = [URLQueryItem(name: "since", value: ISO8601DateFormatter().string(from: since))]
+        }
+        guard let url = components.url else { throw APIError.invalidURL }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 12
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+        guard http.statusCode == 200 else { throw APIError.serverError(http.statusCode) }
+        return try JSONDecoder().decode(VPSAnomaliesResponse.self, from: data)
+    }
+
+    func updateAnomalySettings(
+        baseURL: String, token: String, profile: AnomalyProfile,
+        vpsEnabled: Bool, modelEnabled: Bool
+    ) async throws -> VPSAnomalySettings {
+        let normalized = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let url = URL(string: normalized + "/api/anomaly-settings") else { throw APIError.invalidURL }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.timeoutInterval = 12
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONEncoder().encode(VPSAnomalySettings(
+            profile: profile, vpsEnabled: vpsEnabled, modelEnabled: modelEnabled
+        ))
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+        guard http.statusCode == 200 else { throw APIError.serverError(http.statusCode) }
+        return try JSONDecoder().decode(VPSAnomalySettings.self, from: data)
     }
 }
 

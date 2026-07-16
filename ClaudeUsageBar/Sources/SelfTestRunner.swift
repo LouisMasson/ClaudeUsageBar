@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 enum SelfTestRunner {
     static func run() throws {
         try testOAuthUsageDecoding()
@@ -8,6 +9,7 @@ enum SelfTestRunner {
         try testOpenRouterAnalyticsDecoding()
         try testCodexUsageDecoding()
         try testLegacyCredentialMigration()
+        try testAnomalyDecodingAndDetection()
         FileHandle.standardOutput.write(Data("ClaudeUsageBar self-tests: OK\n".utf8))
     }
 
@@ -81,5 +83,31 @@ enum SelfTestRunner {
         try require(credentials.vpsAPIToken.isEmpty, "Legacy VPS token default")
         try require(credentials.openRouterManagementKey.isEmpty, "Legacy OpenRouter management key default")
         try require(credentials.githubToken.isEmpty, "Legacy GitHub token default")
+    }
+
+    private static func testAnomalyDecodingAndDetection() throws {
+        let legacyJSON = #"{"schema_version":2,"status":"ok","updated_at":"2026-07-15T20:00:00Z","vps":{"cpu_percent":12,"ram_percent":40,"disk_percent":50,"uptime":"2 days"},"sites":{"healthy":0,"total":0,"items":[]},"services":{"healthy":0,"total":0,"items":[]}}"#
+        let legacy = try JSONDecoder().decode(VPSMenuStatus.self, from: Data(legacyJSON.utf8))
+        try require(legacy.anomalySummary == nil, "VPS schema v2 compatibility")
+
+        let eventJSON = #"{"events":[{"id":"evt-1","source":"vps","metric":"cpu_percent","severity":"critical","state":"open","started_at":"2026-07-16T10:00:00.123456+00:00","resolved_at":null,"observed_value":96.0,"baseline":{"median":20,"mad":2,"low":14,"high":26},"message":"CPU critique"}],"settings":{"profile":"balanced","vps_enabled":true,"model_enabled":true}}"#
+        let response = try JSONDecoder().decode(VPSAnomaliesResponse.self, from: Data(eventJSON.utf8))
+        try require(response.events.first?.localEvent()?.isCritical == true, "Server anomaly decoding")
+
+        let detector = LocalAnomalyDetector(persistChanges: false)
+        var events: [AnomalyEvent] = []
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        _ = detector.recordQuota(source: "Claude", metric: "session", utilization: 40, projected: 120, profile: .balanced, events: &events, at: start)
+        let opened = detector.recordQuota(source: "Claude", metric: "session", utilization: 41, projected: 120, profile: .balanced, events: &events, at: start.addingTimeInterval(300))
+        try require(opened.count == 1 && events.first?.isOpen == true, "Projection confirmation")
+        _ = detector.recordQuota(source: "Claude", metric: "session", utilization: 10, projected: nil, profile: .balanced, events: &events, at: start.addingTimeInterval(600))
+        _ = detector.recordQuota(source: "Claude", metric: "session", utilization: 11, projected: nil, profile: .balanced, events: &events, at: start.addingTimeInterval(900))
+        try require(events.first?.state == "resolved", "Reset and hysteresis resolution")
+        let quiet = detector.recordDailyPace(
+            source: "OpenRouter", metric: "daily_spend", todayValue: 0,
+            previousDays: [0, 0, 0], attribution: nil, profile: .balanced,
+            events: &events, at: start
+        )
+        try require(quiet.isEmpty, "Zero daily baseline must stay quiet")
     }
 }

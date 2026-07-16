@@ -116,32 +116,40 @@ struct PopoverView: View {
 
 struct VPSCompactCard: View {
     @ObservedObject var usageState: UsageState
+    @AppStorage("popover.vpsCollapsed") private var isCollapsed = false
 
     var body: some View {
         if let status = usageState.vpsStatus {
             VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 9) {
-                    Circle()
-                        .fill(status.isHealthy ? UsagePalette.green : UsagePalette.orange)
-                        .frame(width: 9, height: 9)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("VPS Contabo")
-                            .font(.body.bold())
-                        Text("CPU \(percent(status.vps.cpuPercent))   RAM \(percent(status.vps.ramPercent))   SSD \(percent(status.vps.diskPercent))")
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundColor(.secondary)
-                        Text("\(status.sites.healthy)/\(status.sites.total) sites · \(status.services.healthy)/\(status.services.total) services")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                        if let analytics = status.sites.items.first(where: { $0.name == "louismasson.me" })?.analytics {
-                            Text("louismasson.me · \(analytics.thirtyDays.visitors) visiteurs / 30 j")
+                CollapsibleProviderHeader(
+                    title: "VPS Contabo",
+                    symbol: "server.rack",
+                    detail: "\(status.sites.healthy)/\(status.sites.total) sites",
+                    isCollapsed: $isCollapsed
+                )
+                if !isCollapsed {
+                    HStack(spacing: 9) {
+                        Circle()
+                            .fill(status.isHealthy ? UsagePalette.green : UsagePalette.orange)
+                            .frame(width: 9, height: 9)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("CPU \(percent(status.vps.cpuPercent))   RAM \(percent(status.vps.ramPercent))   SSD \(percent(status.vps.diskPercent))")
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundColor(.secondary)
+                            Text("\(status.sites.healthy)/\(status.sites.total) sites · \(status.services.healthy)/\(status.services.total) services")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
+                            if let analytics = status.sites.items.first(where: { $0.name == "louismasson.me" })?.analytics {
+                                Text("louismasson.me · \(analytics.thirtyDays.visitors) visiteurs / 30 j")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
                         }
+                        Spacer()
+                        MiniSparkline(samples: usageState.vpsHistory.suffix(24).map(\.cpu))
+                            .frame(width: 84, height: 34)
                     }
-                    Spacer()
-                    MiniSparkline(samples: usageState.vpsHistory.suffix(24).map(\.cpu))
-                        .frame(width: 84, height: 34)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
         } else if let error = usageState.vpsError {
@@ -176,35 +184,53 @@ struct MiniSparkline: View {
 struct UsageDetailsView: View {
     @ObservedObject var usageState: UsageState
     var onSettings: () -> Void = {}
+    @AppStorage("popover.codexCollapsed") private var codexCollapsed = false
+    @AppStorage("popover.claudeCollapsed") private var claudeCollapsed = false
+    @AppStorage("popover.openRouterCollapsed") private var openRouterCollapsed = false
+    @AppStorage("popover.clineCollapsed") private var clineCollapsed = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let codex = usageState.codexUsage {
-                ProviderHeader(title: "Codex", symbol: "terminal", detail: codex.rateLimits.planType?.capitalized)
-                ForEach(codex.windows) { window in
-                    UsageRow(
-                        title: window.label,
-                        utilization: window.usedPercent,
-                        resetTime: window.resetLabel,
-                        isPrimary: codex.windows.first?.id == window.id
-                    )
-                }
-                HStack {
-                    Text("Tokens cumulés")
-                    Spacer()
-                    Text(compact(codex.tokenUsage.summary.lifetimeTokens ?? 0))
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundColor(.secondary)
+                CollapsibleProviderHeader(
+                    title: "Codex",
+                    symbol: "terminal",
+                    detail: codex.rateLimits.planType?.capitalized,
+                    isCollapsed: $codexCollapsed
+                )
+                if !codexCollapsed {
+                    ForEach(codex.windows) { window in
+                        UsageRow(
+                            title: window.label,
+                            utilization: window.usedPercent,
+                            resetTime: window.resetLabel,
+                            isPrimary: codex.windows.first?.id == window.id
+                        )
+                    }
+                    HStack {
+                        Text("Tokens cumulés")
+                        Spacer()
+                        Text(compact(codex.tokenUsage.summary.lifetimeTokens ?? 0))
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
                 }
             } else if let error = usageState.codexError {
-                ProviderHeader(title: "Codex", symbol: "terminal")
-                Text(error).font(.caption2).foregroundColor(.secondary)
+                CollapsibleProviderHeader(title: "Codex", symbol: "terminal", isCollapsed: $codexCollapsed)
+                if !codexCollapsed {
+                    Text(error).font(.caption2).foregroundColor(.secondary)
+                }
             }
 
             if usageState.usage != nil || usageState.cookieExpired || usageState.error != nil {
                 Divider()
-                ProviderHeader(title: "Claude", symbol: "sparkles")
-                if usageState.usage != nil || usageState.cookieExpired {
+                CollapsibleProviderHeader(
+                    title: "Claude",
+                    symbol: "sparkles",
+                    detail: usageState.cookieExpired ? "Session expirée" : "\(usageState.sessionUtilization)%",
+                    isCollapsed: $claudeCollapsed
+                )
+                if !claudeCollapsed, usageState.usage != nil || usageState.cookieExpired {
                     UsageRow(
                         title: "Session 5h",
                         utilization: usageState.sessionUtilization,
@@ -221,11 +247,11 @@ struct UsageDetailsView: View {
                         projectedAtReset: usageState.weeklyProjectedUtilization,
                         isNA: usageState.cookieExpired
                     )
-                } else if let error = usageState.error {
+                } else if !claudeCollapsed, let error = usageState.error {
                     Text(error).font(.caption2).foregroundColor(.secondary)
                 }
 
-                if usageState.cookieExpired {
+                if !claudeCollapsed, usageState.cookieExpired {
                     Button(action: onSettings) {
                         HStack(spacing: 4) {
                             Image(systemName: "lock.rotation")
@@ -243,22 +269,29 @@ struct UsageDetailsView: View {
             // one fetch has completed (success or failure).
             if usageState.openRouterCredits != nil || usageState.openRouterError != nil {
                 Divider()
-                ProviderHeader(title: "OpenRouter", symbol: "network")
+                CollapsibleProviderHeader(
+                    title: "OpenRouter",
+                    symbol: "network",
+                    detail: usageState.openRouterCredits == nil ? nil : usageState.openRouterRemainingLabel,
+                    isCollapsed: $openRouterCollapsed
+                )
 
-                if usageState.openRouterCredits != nil {
+                if !openRouterCollapsed, usageState.openRouterCredits != nil {
                     CreditsRow(
                         title: "Crédits",
                         remainingLabel: usageState.openRouterRemainingLabel
                     )
-                } else if let error = usageState.openRouterError {
+                } else if !openRouterCollapsed, let error = usageState.openRouterError {
                     Text(error)
                         .font(.caption2)
                         .foregroundColor(.red)
                 }
 
-                Link(destination: URL(string: "https://openrouter.ai/settings/credits")!) {
-                    Label("Recharger des crédits", systemImage: "plus.circle")
-                        .font(.caption)
+                if !openRouterCollapsed {
+                    Link(destination: URL(string: "https://openrouter.ai/settings/credits")!) {
+                        Label("Recharger des crédits", systemImage: "plus.circle")
+                            .font(.caption)
+                    }
                 }
             }
 
@@ -266,9 +299,14 @@ struct UsageDetailsView: View {
             // one fetch has completed (success or failure).
             if usageState.clineUsage != nil || usageState.clineError != nil {
                 Divider()
-                ProviderHeader(title: "Cline Pass", symbol: "chevron.left.forwardslash.chevron.right")
+                CollapsibleProviderHeader(
+                    title: "Cline Pass",
+                    symbol: "chevron.left.forwardslash.chevron.right",
+                    detail: usageState.clineUsage == nil ? nil : "\(usageState.clineFiveHourUtilization)%",
+                    isCollapsed: $clineCollapsed
+                )
 
-                if usageState.clineUsage != nil {
+                if !clineCollapsed, usageState.clineUsage != nil {
                     UsageRow(
                         title: "Session (5h)",
                         utilization: usageState.clineFiveHourUtilization,
@@ -283,7 +321,7 @@ struct UsageDetailsView: View {
                         projectedAtReset: usageState.clineWeeklyProjectedUtilization
                     )
 
-                } else if let error = usageState.clineError {
+                } else if !clineCollapsed, let error = usageState.clineError {
                     Text(error)
                         .font(.caption2)
                         .foregroundColor(.red)
@@ -302,19 +340,37 @@ struct UsageDetailsView: View {
     }
 }
 
-struct ProviderHeader: View {
+struct CollapsibleProviderHeader: View {
     let title: String
     let symbol: String
     var detail: String? = nil
+    @Binding var isCollapsed: Bool
 
     var body: some View {
-        HStack {
-            Label(title, systemImage: symbol).font(.body.bold())
-            Spacer()
-            if let detail {
-                Text(detail).font(.caption).foregroundColor(.secondary)
+        Button {
+            withAnimation(.easeInOut(duration: 0.16)) {
+                isCollapsed.toggle()
             }
+        } label: {
+            HStack {
+                Label(title, systemImage: symbol)
+                    .font(.body.bold())
+                Spacer()
+                if let detail {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                Image(systemName: "chevron.down")
+                    .font(.caption.bold())
+                    .foregroundColor(.secondary)
+                    .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(isCollapsed ? "Déplier" : "Replier") \(title)")
     }
 }
 
@@ -545,6 +601,20 @@ struct SettingsViewWrapper: View {
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.caption, design: .monospaced))
                 Text("Collez le cookie `cline_session_id=...` depuis app.cline.bot. Laissez vide pour désactiver.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("GitHub Activities (optionnel)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                SecureField("Token GitHub personnel", text: $settingsState.githubToken)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+                Text("Laissez vide pour réutiliser automatiquement la connexion GitHub CLI du Mac. Sinon, le token est conservé dans le Keychain de l’app.")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }

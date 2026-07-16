@@ -24,6 +24,7 @@ struct DashboardView: View {
 
                 aiSection
                 codexSection
+                githubActivitySection
                 openRouterActivitySection
                 websiteAnalyticsSection
                 vpsSection
@@ -31,6 +32,85 @@ struct DashboardView: View {
             .padding(28)
         }
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    @ViewBuilder
+    private var githubActivitySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("GitHub Activities", systemImage: "chevron.left.forwardslash.chevron.right")
+                    .font(.title2.bold())
+                Spacer()
+                if let snapshot = usageState.githubActivity,
+                   let profileURL = URL(string: "https://github.com/\(snapshot.username)") {
+                    Link(destination: profileURL) {
+                        Label("@\(snapshot.username)", systemImage: "arrow.up.right.square")
+                    }
+                }
+            }
+
+            if let snapshot = usageState.githubActivity {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
+                    GitHubMetricCard(title: "Contributions", value: snapshot.totalContributions, symbol: "square.grid.3x3.fill")
+                    GitHubMetricCard(title: "Commits", value: snapshot.commits, symbol: "arrow.triangle.branch")
+                    GitHubMetricCard(title: "Pull requests", value: snapshot.pullRequests, symbol: "arrow.triangle.merge")
+                    GitHubMetricCard(title: "Issues", value: snapshot.issues, symbol: "exclamationmark.circle")
+                    GitHubMetricCard(title: "Reviews", value: snapshot.reviews, symbol: "checkmark.bubble")
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Contributions quotidiennes")
+                            .font(.headline)
+                        Spacer()
+                        Text("30 derniers jours")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    GitHubContributionChart(days: snapshot.days)
+                        .frame(height: 92)
+                        .padding(12)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.04)))
+                    HStack {
+                        if snapshot.privateContributions > 0 {
+                            Label(
+                                "\(snapshot.privateContributions) contributions privées",
+                                systemImage: "lock.fill"
+                            )
+                        }
+                        Spacer()
+                        Text("Actualisé \(snapshot.fetchedAt.formatted(date: .omitted, time: .shortened))")
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                }
+            } else if usageState.isLoadingGitHubActivity {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Chargement de l’activité GitHub…")
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(28)
+            } else if let error = usageState.githubActivityError {
+                VStack(spacing: 8) {
+                    Image(systemName: "chevron.left.forwardslash.chevron.right")
+                        .font(.largeTitle)
+                        .foregroundColor(.secondary)
+                    Text("Activité GitHub indisponible").font(.headline)
+                    Text(error).font(.caption).foregroundColor(.secondary)
+                    Link("Créer un token GitHub", destination: URL(string: "https://github.com/settings/tokens")!)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(24)
+                .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.04)))
+            } else {
+                Text("Ouvrez le dashboard pour charger l’activité GitHub.")
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(24)
+            }
+        }
     }
 
     @ViewBuilder
@@ -444,6 +524,56 @@ struct WebsiteAnalyticsCard: View {
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct GitHubMetricCard: View {
+    let title: String
+    let value: Int
+    let symbol: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: symbol)
+                .font(.headline)
+                .foregroundColor(.secondary)
+            Text("\(value)")
+                .font(.system(size: 27, weight: .bold, design: .rounded))
+                .monospacedDigit()
+            Text("Sur 30 jours")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.05)))
+    }
+}
+
+struct GitHubContributionChart: View {
+    let days: [GitHubContributionDay]
+
+    var body: some View {
+        GeometryReader { geometry in
+            let values = Array(days.suffix(30)).map(\.count)
+            let maximum = max(values.max() ?? 0, 1)
+            let spacing: CGFloat = 3
+            let barWidth = max(2, (geometry.size.width - spacing * CGFloat(max(values.count - 1, 0))) / CGFloat(max(values.count, 1)))
+
+            HStack(alignment: .bottom, spacing: spacing) {
+                ForEach(Array(values.enumerated()), id: \.offset) { _, value in
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(value == 0 ? Color.primary.opacity(0.08) : UsagePalette.green.opacity(0.45 + 0.55 * Double(value) / Double(maximum)))
+                        .frame(
+                            width: barWidth,
+                            height: value == 0
+                                ? 4
+                                : max(6, geometry.size.height * CGFloat(value) / CGFloat(maximum))
+                        )
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        }
     }
 }
 

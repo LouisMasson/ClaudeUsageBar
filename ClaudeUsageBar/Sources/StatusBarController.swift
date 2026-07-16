@@ -108,6 +108,7 @@ class StatusBarController: NSObject {
         settingsState.openRouterKey = creds?.openRouterAPIKey ?? ""
         settingsState.openRouterManagementKey = creds?.openRouterManagementKey ?? ""
         settingsState.clineSessionCookie = creds?.clineSessionCookie ?? ""
+        settingsState.githubToken = creds?.githubToken ?? ""
         settingsState.vpsBaseURL = creds?.vpsBaseURL ?? "https://status.patronusguardian.org"
         settingsState.vpsAPIToken = creds?.vpsAPIToken ?? ""
         settingsState.claudeOAuthEnabled = UserDefaults.standard.object(forKey: SettingsState.claudeOAuthKey) == nil
@@ -146,10 +147,17 @@ class StatusBarController: NSObject {
         let openRouterKey = settingsState.openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let openRouterManagementKey = settingsState.openRouterManagementKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let clineCookie = settingsState.clineSessionCookie.trimmingCharacters(in: .whitespacesAndNewlines)
+        let githubToken = settingsState.githubToken.trimmingCharacters(in: .whitespacesAndNewlines)
         let vpsBaseURL = settingsState.vpsBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let vpsToken = settingsState.vpsAPIToken.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard settingsState.claudeOAuthEnabled || (!orgId.isEmpty && !cookie.isEmpty) else {
+        let hasManualClaude = !orgId.isEmpty && !cookie.isEmpty
+        let hasOptionalIntegration = !openRouterKey.isEmpty
+            || !openRouterManagementKey.isEmpty
+            || !clineCookie.isEmpty
+            || !vpsToken.isEmpty
+            || !githubToken.isEmpty
+        guard settingsState.claudeOAuthEnabled || hasManualClaude || hasOptionalIntegration else {
             return
         }
 
@@ -167,6 +175,7 @@ class StatusBarController: NSObject {
             openRouterAPIKey: openRouterKey,
             openRouterManagementKey: openRouterManagementKey,
             clineSessionCookie: clineCookie,
+            githubToken: githubToken,
             vpsBaseURL: vpsBaseURL.isEmpty ? "https://status.patronusguardian.org" : vpsBaseURL,
             vpsAPIToken: vpsToken
         )
@@ -423,7 +432,11 @@ class StatusBarController: NSObject {
         if let dashboardWindow {
             dashboardWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
-            Task { await refreshOpenRouterActivity() }
+            Task {
+                async let openRouterRefresh: Void = refreshOpenRouterActivity()
+                async let githubRefresh: Void = refreshGitHubActivity()
+                _ = await (openRouterRefresh, githubRefresh)
+            }
             return
         }
 
@@ -433,6 +446,7 @@ class StatusBarController: NSObject {
                 Task {
                     await self?.refreshUsage()
                     await self?.refreshOpenRouterActivity(force: true)
+                    await self?.refreshGitHubActivity(force: true)
                 }
             }
         )
@@ -453,8 +467,32 @@ class StatusBarController: NSObject {
         Task {
             async let usageRefresh: Void = refreshUsage()
             async let activityRefresh: Void = refreshOpenRouterActivity()
-            _ = await (usageRefresh, activityRefresh)
+            async let githubRefresh: Void = refreshGitHubActivity()
+            _ = await (usageRefresh, activityRefresh, githubRefresh)
         }
+    }
+
+    /// GitHub activity is dashboard-only and cached for 15 minutes. A configured
+    /// Keychain token is preferred; otherwise the existing GitHub CLI session is
+    /// reused without persisting another credential.
+    func refreshGitHubActivity(force: Bool = false) async {
+        if !force,
+           let snapshot = usageState.githubActivity,
+           Date().timeIntervalSince(snapshot.fetchedAt) < 15 * 60 {
+            return
+        }
+
+        let credentials = KeychainHelper.loadAll() ?? KeychainHelper.Credentials()
+        usageState.isLoadingGitHubActivity = true
+        usageState.githubActivityError = nil
+        do {
+            usageState.githubActivity = try await GitHubActivityService.shared.fetchSnapshot(
+                configuredToken: credentials.githubToken
+            )
+        } catch {
+            usageState.githubActivityError = error.localizedDescription
+        }
+        usageState.isLoadingGitHubActivity = false
     }
 
     /// OpenRouter analytics is dashboard-only and cached for 15 minutes. The

@@ -512,6 +512,7 @@ class SettingsState: ObservableObject {
     @Published var openRouterKey: String = ""
     @Published var openRouterManagementKey: String = ""
     @Published var clineSessionCookie: String = ""
+    @Published var githubToken: String = ""
     @Published var vpsBaseURL: String = "https://status.patronusguardian.org"
     @Published var vpsAPIToken: String = ""
     @Published var claudeOAuthEnabled: Bool = UserDefaults.standard.object(forKey: SettingsState.claudeOAuthKey) == nil
@@ -538,6 +539,10 @@ class UsageState: ObservableObject {
 
     @Published var codexUsage: CodexUsageSnapshot?
     @Published var codexError: String?
+
+    @Published var githubActivity: GitHubActivitySnapshot?
+    @Published var githubActivityError: String?
+    @Published var isLoadingGitHubActivity = false
 
     @Published var clineUsage: ClineUsageResponse?
     @Published var clineError: String?

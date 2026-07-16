@@ -80,5 +80,6 @@ enum SelfTestRunner {
         try require(credentials.vpsBaseURL == "https://status.patronusguardian.org", "Legacy VPS URL default")
         try require(credentials.vpsAPIToken.isEmpty, "Legacy VPS token default")
         try require(credentials.openRouterManagementKey.isEmpty, "Legacy OpenRouter management key default")
+        try require(credentials.githubToken.isEmpty, "Legacy GitHub token default")
     }
 }

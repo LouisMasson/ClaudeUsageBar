@@ -31,6 +31,7 @@ enum KeychainHelper {
         var openRouterAPIKey: String = ""
         var openRouterManagementKey: String = ""
         var clineSessionCookie: String = ""
+        var githubToken: String = ""
         var vpsBaseURL: String = "https://status.patronusguardian.org"
         var vpsAPIToken: String = ""
 
@@ -40,6 +41,7 @@ enum KeychainHelper {
             openRouterAPIKey: String = "",
             openRouterManagementKey: String = "",
             clineSessionCookie: String = "",
+            githubToken: String = "",
             vpsBaseURL: String = "https://status.patronusguardian.org",
             vpsAPIToken: String = ""
         ) {
@@ -48,13 +50,14 @@ enum KeychainHelper {
             self.openRouterAPIKey = openRouterAPIKey
             self.openRouterManagementKey = openRouterManagementKey
             self.clineSessionCookie = clineSessionCookie
+            self.githubToken = githubToken
             self.vpsBaseURL = vpsBaseURL
             self.vpsAPIToken = vpsAPIToken
         }
 
         private enum CodingKeys: String, CodingKey {
             case organizationId, sessionCookie, openRouterAPIKey, openRouterManagementKey, clineSessionCookie
-            case vpsBaseURL, vpsAPIToken
+            case githubToken, vpsBaseURL, vpsAPIToken
         }
 
         init(from decoder: Decoder) throws {
@@ -64,6 +67,7 @@ enum KeychainHelper {
             openRouterAPIKey = try c.decodeIfPresent(String.self, forKey: .openRouterAPIKey) ?? ""
             openRouterManagementKey = try c.decodeIfPresent(String.self, forKey: .openRouterManagementKey) ?? ""
             clineSessionCookie = try c.decodeIfPresent(String.self, forKey: .clineSessionCookie) ?? ""
+            githubToken = try c.decodeIfPresent(String.self, forKey: .githubToken) ?? ""
             vpsBaseURL = try c.decodeIfPresent(String.self, forKey: .vpsBaseURL)
                 ?? "https://status.patronusguardian.org"
             vpsAPIToken = try c.decodeIfPresent(String.self, forKey: .vpsAPIToken) ?? ""
@@ -116,6 +120,7 @@ enum KeychainHelper {
         guard let creds = loadAll() else { return false }
         return (!creds.sessionCookie.isEmpty && !creds.organizationId.isEmpty)
             || !creds.vpsAPIToken.isEmpty
+            || !creds.githubToken.isEmpty
     }
 
     // MARK: - Internal

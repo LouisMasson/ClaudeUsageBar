@@ -5,6 +5,18 @@ struct ClaudeUsageBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     init() {
+        if CommandLine.arguments.contains("--github-live-test") {
+            do {
+                let snapshot = try GitHubActivityService.fetchSynchronouslyForTesting()
+                FileHandle.standardOutput.write(Data(
+                    "GitHub live test: @\(snapshot.username) · \(snapshot.totalContributions) contributions · \(snapshot.days.count) jours\n".utf8
+                ))
+                exit(0)
+            } catch {
+                FileHandle.standardError.write(Data("GitHub live test failed: \(error.localizedDescription)\n".utf8))
+                exit(1)
+            }
+        }
         if CommandLine.arguments.contains("--codex-live-test") {
             do {
                 let snapshot = try CodexUsageService.fetchSynchronouslyForTesting()

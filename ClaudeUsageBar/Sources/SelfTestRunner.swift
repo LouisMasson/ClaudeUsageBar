@@ -26,11 +26,13 @@ enum SelfTestRunner {
     }
 
     private static func testVPSStatusDecoding() throws {
-        let json = #"{"schema_version":1,"status":"ok","updated_at":"2026-07-15T20:00:00Z","vps":{"cpu_percent":12.5,"ram_percent":41.2,"disk_percent":73.0,"uptime":"2 days"},"sites":{"healthy":2,"total":2,"items":[{"name":"status.example.org","status":"up","detail":"HTTP 200"}]},"services":{"healthy":1,"total":1,"items":[{"name":"Traefik","status":"running","detail":null}]}}"#
+        let json = #"{"schema_version":2,"status":"ok","updated_at":"2026-07-15T20:00:00Z","vps":{"cpu_percent":12.5,"ram_percent":41.2,"ram_available_gb":6.4,"swap_percent":8.1,"swap_used_gb":0.8,"disk_percent":73.0,"disk_free_gb":31.2,"load_1":0.4,"load_5":0.3,"load_15":0.2,"cores":6,"uptime":"2 days"},"sites":{"healthy":2,"total":2,"items":[{"name":"louismasson.me","status":"up","detail":"HTTP 200","url":"https://louismasson.me","http_status":200,"latency_ms":84,"tls_days_remaining":76,"analytics":{"today":{"visitors":2,"visits":2,"pageviews":3},"7d":{"visitors":9,"visits":10,"pageviews":15},"30d":{"visitors":46,"visits":47,"pageviews":62}}}]},"services":{"healthy":1,"total":1,"items":[{"name":"Traefik","status":"running","detail":"Up 2 days","image":"traefik:v3","created_at":"2026-07-13T20:00:00Z"}]}}"#
         let status = try JSONDecoder().decode(VPSMenuStatus.self, from: Data(json.utf8))
         try require(status.isHealthy, "VPS global status")
         try require(status.sites.healthy == 2, "VPS sites availability")
         try require(status.services.items.first?.name == "Traefik", "VPS service list")
+        try require(status.vps.swapPercent == 8.1, "VPS swap metric")
+        try require(status.sites.items.first?.analytics?.thirtyDays.visitors == 46, "Plausible visitors")
     }
 
     private static func testOpenRouterActivitySummary() throws {

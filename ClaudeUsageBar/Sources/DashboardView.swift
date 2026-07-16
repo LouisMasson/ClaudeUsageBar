@@ -285,6 +285,13 @@ struct DashboardView: View {
                     DashboardMetricCard(title: "RAM", value: percent(status.vps.ramPercent), detail: "Mémoire utilisée", progress: status.vps.ramPercent)
                     DashboardMetricCard(title: "SSD", value: percent(status.vps.diskPercent), detail: "Espace utilisé", progress: status.vps.diskPercent)
                     DashboardMetricCard(title: "Disponibilité", value: "\(status.sites.healthy)/\(status.sites.total)", detail: "Sites · \(status.services.healthy)/\(status.services.total) services", progress: status.sites.total == 0 ? 0 : Double(status.sites.healthy) / Double(status.sites.total) * 100)
+                    if let analytics = status.sites.items.first(where: { $0.name == "louismasson.me" })?.analytics {
+                        CodexStatCard(
+                            title: "Visiteurs · louismasson.me",
+                            value: compact(analytics.thirtyDays.visitors),
+                            detail: "30 jours · \(analytics.today.visitors) aujourd’hui · \(analytics.sevenDays.visitors) sur 7 j"
+                        )
+                    }
                 }
 
                 VStack(alignment: .leading, spacing: 8) {

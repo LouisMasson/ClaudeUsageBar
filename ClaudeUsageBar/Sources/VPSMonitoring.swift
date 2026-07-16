@@ -21,13 +21,29 @@ struct VPSMenuStatus: Codable {
 struct VPSResources: Codable {
     let cpuPercent: Double
     let ramPercent: Double
+    let ramAvailableGB: Double?
+    let swapPercent: Double?
+    let swapUsedGB: Double?
     let diskPercent: Double
+    let diskFreeGB: Double?
+    let load1: Double?
+    let load5: Double?
+    let load15: Double?
+    let cores: Int?
     let uptime: String
 
     enum CodingKeys: String, CodingKey {
         case cpuPercent = "cpu_percent"
         case ramPercent = "ram_percent"
+        case ramAvailableGB = "ram_available_gb"
+        case swapPercent = "swap_percent"
+        case swapUsedGB = "swap_used_gb"
         case diskPercent = "disk_percent"
+        case diskFreeGB = "disk_free_gb"
+        case load1 = "load_1"
+        case load5 = "load_5"
+        case load15 = "load_15"
+        case cores
         case uptime
     }
 }
@@ -42,9 +58,42 @@ struct VPSAvailabilityItem: Codable, Identifiable {
     let name: String
     let status: String
     let detail: String?
+    let url: String?
+    let httpStatus: Int?
+    let latencyMS: Int?
+    let tlsDaysRemaining: Int?
+    let image: String?
+    let createdAt: String?
+    let analytics: VPSPlausibleAnalytics?
+
+    enum CodingKeys: String, CodingKey {
+        case name, status, detail, url, image, analytics
+        case httpStatus = "http_status"
+        case latencyMS = "latency_ms"
+        case tlsDaysRemaining = "tls_days_remaining"
+        case createdAt = "created_at"
+    }
 
     var id: String { name }
     var isHealthy: Bool { status == "up" || status == "running" }
+}
+
+struct VPSPlausibleAnalytics: Codable {
+    let today: VPSPlausibleAggregate
+    let sevenDays: VPSPlausibleAggregate
+    let thirtyDays: VPSPlausibleAggregate
+
+    enum CodingKeys: String, CodingKey {
+        case today
+        case sevenDays = "7d"
+        case thirtyDays = "30d"
+    }
+}
+
+struct VPSPlausibleAggregate: Codable {
+    let visitors: Int
+    let visits: Int
+    let pageviews: Int
 }
 
 struct VPSHistorySample: Codable, Identifiable {

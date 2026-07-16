@@ -133,6 +133,11 @@ struct VPSCompactCard: View {
                         Text("\(status.sites.healthy)/\(status.sites.total) sites · \(status.services.healthy)/\(status.services.total) services")
                             .font(.caption2)
                             .foregroundColor(.secondary)
+                        if let analytics = status.sites.items.first(where: { $0.name == "louismasson.me" })?.analytics {
+                            Text("louismasson.me · \(analytics.thirtyDays.visitors) visiteurs / 30 j")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
                     }
                     Spacer()
                     MiniSparkline(samples: usageState.vpsHistory.suffix(24).map(\.cpu))

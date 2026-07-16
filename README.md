@@ -1,41 +1,37 @@
-# AI Usage Monitor (ClaudeUsageBar)
+# AI Usage Monitor
 
-**[🌐 Website](https://claudeusagebar.louismasson.me)** · **[⬇️ Download .dmg](https://github.com/LouisMasson/ClaudeUsageBar/releases/latest)**
+A lightweight native macOS menu bar app for monitoring AI usage, developer activity and personal infrastructure from one place.
 
-A lightweight macOS menu bar app to monitor Codex, Claude, OpenRouter, Cline and a VPS from one place.
+[Website](https://claudeusagebar.louismasson.me) · [Download the latest release](https://github.com/LouisMasson/ClaudeUsageBar/releases/latest)
 
-![Claude Usage Bar Screenshot](assets/screenshot.png)
+![AI Usage Monitor](assets/screenshot.png)
 
 ## Features
 
-- **Menu bar indicator** showing current session usage percentage, plus a forward-looking projection at reset (e.g. `◐ 67% → 89%`)
-- **Burn-rate projection** on every bucket — linear projection of where utilization will land at the next reset, expressed in the same `%` unit Anthropic uses. Color-coded green / orange / red by projected value so you see at a glance whether you'll hit the limit before reset.
-- **Detailed popover** with all usage metrics:
-  - Codex account limits and cumulative token usage from the local Codex app server
-  - Session (5h) usage with reset countdown and projection
-  - Weekly limits for all models (with projection when consumption is active)
-  - Sonnet-only usage (with projection)
-  - Claude Design usage (with projection)
-  - **OpenRouter credits** (optional) — remaining balance + utilization bar
-- **Notch overlay** — hover the top of the screen to reveal a floating pill showing session %, projection, color-coded progress bar, and reset countdown. Sits right under the Mac notch (works on non-notched Macs too). Opt-in from Settings.
-- **Auto-refresh** every 5 minutes
-- **Contabo VPS monitoring** — CPU, RAM, disk, sites and services through a lightweight authenticated endpoint
-- **Native dashboard** with seven days of local VPS history and detailed availability lists
-- **Claude Code OAuth** as the preferred Claude usage source, with the existing claude.ai cookie as fallback
-- **Secure storage** of credentials in macOS Keychain
-- **Launch at startup** through macOS native Login Items (`SMAppService`)
+- Claude usage for the current 5-hour session and weekly limits
+- Codex limits and local token activity
+- OpenRouter credits and activity analytics
+- Optional Cline Pass usage limits
+- Collapsible menu bar sections with persistent visibility preferences
+- GitHub activity summary for the last 30 days
+- Website analytics through a compatible Plausible-backed status API
+- VPS health, availability and local seven-day history
+- Native dark and light mode support
+- Credentials stored in macOS Keychain
+- Low-frequency background refreshes with caching
+- Optional launch at login and notch overlay
 
 ## Requirements
 
-- macOS 12.0+ (Monterey or later)
-- A Claude Max subscription
-- *(Optional)* Codex or ChatGPT Desktop installed for Codex limits and token activity
-- *(Optional)* An [OpenRouter](https://openrouter.ai) account with an API key
-- Xcode Command Line Tools (for building)
+- macOS 12 or later
+- Xcode Command Line Tools when building from source
+- Credentials only for the services you want to enable
+
+All integrations are optional. The app can be used with only Claude, Codex, GitHub, OpenRouter or a configured VPS endpoint.
 
 ## Installation
 
-### Option 1: Build from source
+Download the latest DMG from [GitHub Releases](https://github.com/LouisMasson/ClaudeUsageBar/releases/latest), or build locally:
 
 ```bash
 git clone https://github.com/LouisMasson/ClaudeUsageBar.git
@@ -43,168 +39,61 @@ cd ClaudeUsageBar
 swift build -c release
 ```
 
-The executable will be at `.build/release/ClaudeUsageBar`
+The executable is created at `.build/release/ClaudeUsageBar`.
 
-### Option 2: Open in Xcode
+To create a signed local app bundle and DMG:
 
 ```bash
-cd ClaudeUsageBar
-open Package.swift
+VERSION=1.0.0 bash make_app.sh
 ```
-
-Then press `Cmd+R` to build and run.
 
 ## Configuration
 
-On first launch, a configuration window will appear. You need to provide:
+Open the settings panel from the menu bar icon. Available integrations include:
 
-### 1. Organization ID
+- **Claude**: Claude Code OAuth, with a claude.ai session fallback
+- **Codex**: automatically detected from the local Codex installation
+- **OpenRouter**: API key for credits and an optional management key for activity
+- **Cline Pass**: optional session cookie
+- **GitHub**: automatically reuses GitHub CLI authentication, or accepts a personal token
+- **VPS and websites**: read-only bearer token for a compatible `/api/menu-status` endpoint
 
-1. Go to [claude.ai/settings/usage](https://claude.ai/settings/usage)
-2. Open DevTools (`Cmd+Option+I`)
-3. Go to **Network** tab, filter by **XHR/Fetch**
-4. Refresh the page
-5. Look for a request to `/api/organizations/.../usage`
-6. Copy the UUID from the URL (e.g., `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)
-
-### 2. Session Cookie
-
-1. In the same request, go to **Headers** tab
-2. Find **Request Headers** > **Cookie**
-3. Copy only the `sessionKey=sk-ant-sid01-...` part
-
-### 3. OpenRouter API Key *(optional)*
-
-If you also use [OpenRouter](https://openrouter.ai) to access other models, the app
-can display your remaining credits alongside Claude usage.
-
-1. Go to [openrouter.ai/keys](https://openrouter.ai/keys)
-2. Create a new API key (read-only is fine — the app only calls `GET /api/v1/credits`)
-3. Copy the `sk-or-v1-...` value into the **"OpenRouter API Key"** field in settings
-
-Leave this field empty to hide the OpenRouter section entirely. Clearing it and
-saving also removes the key from your Keychain.
-
-### 4. Cline Pass *(optional)*
-
-If you have a [Cline Pass](https://cline.bot/pricing) subscription, the app can
-display your three rolling usage limits — **5-hour**, **weekly**, and **monthly** —
-in percentages alongside your Claude usage.
-
-1. Go to [app.cline.bot/dashboard/activity](https://app.cline.bot/dashboard/activity)
-   and sign in
-2. Open DevTools (`Cmd+Option+I`) → **Network** tab → filter by **Fetch/XHR**
-3. Reload the page
-4. Look for the request to `https://api.cline.bot/api/v1/users/me/plan/usage-limits`
-5. In the **Headers** tab, find **Request Headers** > **Cookie**
-6. Copy the whole `cline_session_id=...` value (just that cookie is enough) into the
-   **"Cline Pass"** field in settings
-
-Leave this field empty to hide the Cline Pass section entirely. Clearing it and
-saving also removes the cookie from your Keychain.
-
-### 5. Contabo VPS *(optional)*
-
-The app calls `GET /api/menu-status` on your status service with a read-only bearer
-token. Configure the status URL and token in Settings. No SSH command is executed
-by the Mac app.
-
-If **Use Claude Code login** is enabled, saving Settings may show one macOS Keychain
-dialog for the existing `Claude Code-credentials` item. Background refreshes are
-strictly non-interactive and never open a permission dialog.
-
-## Usage
-
-- **Click** on the menu bar icon to see detailed usage
-- **Refresh button** to manually update data
-- **Gear icon** to open settings
-- **X icon** to quit the app
-
-## Burn-rate projection
-
-![Burn-rate projection in menu bar + popover](assets/burn-rate-projection.png)
-
-Every bucket (Session 5h, Weekly all models, Sonnet, Claude Design) tracks a rolling window of samples and projects where utilization will land at its own reset. Same unit as Anthropic's API — percent — so nothing new to learn.
-
-**What you see:**
-- Menu bar: `◐ 67% → 89%` where `89%` is the projected value at reset
-- Popover: each row shows `→ N% au reset` under the reset timer
-- Notch pill: `67% →89%` inline
-
-**Color scale (driven by the projection, not the current value):**
-- Green: projected < 60%
-- Orange: projected 60–85%
-- Red: projected ≥ 85% (you will hit the limit before reset)
-
-**When it appears:** the projection shows only when there are at least 2 samples and a positive slope. If utilization is flat (you're not consuming), no projection is rendered — rather than showing noise. The session bucket usually gets its first projection after ~10 minutes of active use. Weekly buckets only show a projection when consumption is meaningful on the sampled window.
-
-**Mechanism:** per-bucket rolling sample buffer (up to 12 points), linear slope, projection to the bucket's `resetsAt`. Samples older than the bucket's reset window are purged automatically, so history never spans a missed reset (Mac sleep, app restart, etc.).
-
-Implementation: `BurnRateProjection.swift`. Self-contained, `@MainActor`, no external dependencies.
-
-## Notch overlay
-
-![Notch overlay pill](assets/notch-overlay.png)
-
-A floating pill can appear under the Mac notch when the cursor enters a hot zone at the top of the screen — showing session %, the burn-rate projection, a color-coded progress bar, and the reset countdown without having to click the menu bar icon.
-
-1. Open **Settings** (gear icon in the popover)
-2. Toggle **"Overlay sous l'encoche"** on, save
-3. Move the cursor near the notch — the pill fades in; move away, it fades out
-
-Implementation: a non-activating `NSPanel` positioned under `safeAreaInsets.top`, driven by a global mouse monitor. Doesn't steal focus. Disabled by default, persisted in `UserDefaults`. Also works on Macs without a notch (hot zone = top-center of the main screen).
-
-## Launch at Startup
-
-Enable **Open at Login** in Settings. On macOS 13+, the app uses the native Login
-Items API. The macOS 12 fallback always points to the installed `.app`, never to a
-development binary under `.build`.
+The GitHub and dashboard analytics requests are cached for 15 minutes. Regular usage refreshes run every five minutes, while VPS health uses a lightweight two-minute refresh.
 
 ## Verification
-
-Run the dependency-free payload checks with:
 
 ```bash
 swift build --disable-sandbox
 .build/debug/ClaudeUsageBar --self-test
+.build/debug/ClaudeUsageBar --github-live-test
 ```
 
-## Project Structure
+The GitHub live test requires an authenticated GitHub CLI session.
 
+## Privacy and security
+
+- Credentials are stored together in one macOS Keychain item
+- A single consolidated Keychain item minimizes permission prompts
+- Tokens and cookies are never written to logs or committed to the repository
+- The app communicates directly with the configured service APIs
+- GitHub CLI authentication is reused in memory and is not copied into the app Keychain
+- The VPS integration only performs authenticated read-only status requests
+
+## Project structure
+
+```text
+ClaudeUsageBar/Sources/
+├── StatusBarController.swift
+├── PopoverView.swift
+├── DashboardView.swift
+├── UsageData.swift
+├── GitHubActivityService.swift
+├── OpenRouterAPIService.swift
+├── CodexUsageService.swift
+├── VPSMonitoring.swift
+└── KeychainHelper.swift
 ```
-ClaudeUsageBar/
-├── Package.swift              # Swift Package Manager config
-├── README.md
-├── claude-usage               # Helper script to start/stop
-└── ClaudeUsageBar/
-    ├── Info.plist
-    └── Sources/
-        ├── ClaudeUsageBarApp.swift       # App entry point
-        ├── StatusBarController.swift      # Menu bar controller
-        ├── PopoverView.swift              # SwiftUI views
-        ├── UsageData.swift                # Data models
-        ├── ClaudeAPIService.swift         # claude.ai API client
-        ├── ClineAPIService.swift          # Cline Pass API client
-        ├── OpenRouterAPIService.swift     # OpenRouter API client
-        ├── KeychainHelper.swift           # Secure storage
-        ├── BurnRateProjection.swift       # Per-bucket burn-rate tracker + linear projection
-        ├── NotchOverlayController.swift   # Notch hover overlay (panel + mouse monitor)
-        └── NotchOverlayView.swift         # SwiftUI pill rendered in the overlay
-```
-
-## Privacy & Security
-
-- Credentials (Claude session cookie, OpenRouter API key, Cline Pass session cookie) are stored securely in macOS Keychain
-- No data is sent to third parties
-- The app only communicates with `claude.ai`, `api.cline.bot`, and, if configured, `openrouter.ai`
-- Session cookies expire after ~30 days and need to be refreshed
-- The OpenRouter key is only used to call `GET /api/v1/credits` (read-only balance lookup)
-- The Cline Pass cookie is only used to call `GET /api/v1/users/me/plan/usage-limits` (read-only usage lookup)
 
 ## License
 
-MIT License - Feel free to use and modify.
-
----
-
-Built with Swift and SwiftUI.
+MIT — feel free to use, modify and contribute.

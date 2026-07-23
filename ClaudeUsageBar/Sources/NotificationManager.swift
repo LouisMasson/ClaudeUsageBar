@@ -102,7 +102,8 @@ final class NotificationManager {
         UserDefaults.standard.set(notified, forKey: defaultsKey)
 
         let content = UNMutableNotificationContent()
-        content.title = event.isCritical ? "🚨 Anomalie critique" : "⚠️ Anomalie détectée"
+        content.title = event.isCritical ? "🚨 Consommation critique" : "⚠️ Anomalie détectée"
+        content.subtitle = event.source
         content.body = event.message
         content.sound = event.isCritical ? .defaultCritical : .default
         UNUserNotificationCenter.current().add(UNNotificationRequest(
@@ -125,8 +126,9 @@ final class NotificationManager {
 
     private func sendCritical(bucket: String, utilization: Int, label: String) {
         let content = UNMutableNotificationContent()
-        content.title = "⚠️ Limite bientôt atteinte"
-        content.body = "\(label) : \(utilization)% utilisé"
+        content.title = "🚨 Consommation critique"
+        content.subtitle = label
+        content.body = "\(utilization)% utilisé — la limite est presque atteinte."
         content.sound = .default
 
         let request = UNNotificationRequest(

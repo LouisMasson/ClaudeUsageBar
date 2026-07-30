@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PopoverView: View {
     @ObservedObject var usageState: UsageState
+    @ObservedObject var pomodoroState: PomodoroTimer
     let onRefresh: () -> Void
     let onSettings: () -> Void
     let onDashboard: () -> Void
@@ -46,6 +47,10 @@ struct PopoverView: View {
 
             Divider()
 
+            PomodoroCompactCard(pomodoroState: pomodoroState)
+
+            Divider()
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if !usageState.sortedAnomalies.isEmpty {
@@ -78,9 +83,19 @@ struct PopoverView: View {
                         Divider()
                         VPSCompactCard(usageState: usageState)
                     }
+
+                    if usageState.hotelRadarAnalytics != nil
+                        || usageState.theCatalogueAnalytics != nil
+                        || usageState.hotelRadarAnalyticsError != nil
+                        || usageState.theCatalogueAnalyticsError != nil
+                        || usageState.isLoadingHotelRadarAnalytics
+                        || usageState.isLoadingTheCatalogueAnalytics {
+                        Divider()
+                        VercelAnalyticsCompactCard(usageState: usageState)
+                    }
                 }
             }
-            .frame(maxHeight: 485)
+            .frame(maxHeight: 365)
 
             Divider()
 
@@ -130,6 +145,129 @@ struct PopoverView: View {
         } else {
             return "il y a \(Int(interval / 3600))h"
         }
+    }
+}
+
+struct PomodoroCompactCard: View {
+    @ObservedObject var pomodoroState: PomodoroTimer
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Label("Pomodoro", systemImage: "timer")
+                    .font(.headline)
+                Spacer()
+                Text(statusLabel)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+            HStack(spacing: 12) {
+                Text(pomodoroState.formattedTime)
+                    .font(.system(size: 27, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .frame(minWidth: 82, alignment: .leading)
+
+                Picker("Durée", selection: durationBinding) {
+                    ForEach(PomodoroTimer.availableDurations, id: \.self) { minutes in
+                        Text("\(minutes) min").tag(minutes)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .disabled(pomodoroState.isActive)
+            }
+
+            HStack(spacing: 6) {
+                Image(systemName: pomodoroState.interval == .focus ? "target" : "cup.and.saucer.fill")
+                    .foregroundColor(.accentColor)
+                Text("Session \(pomodoroState.currentSessionNumber) sur \(PomodoroTimer.sessionsPerCycle)")
+                    .font(.caption.bold())
+                if pomodoroState.interval == .breakTime {
+                    Text("· Pause \(PomodoroTimer.breakMinutes) min")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            ProgressView(value: pomodoroState.progress)
+                .progressViewStyle(.linear)
+
+            HStack {
+                Text(helperLabel)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Spacer()
+                controls
+            }
+        }
+    }
+
+    private var durationBinding: Binding<Int> {
+        Binding(
+            get: { pomodoroState.selectedMinutes },
+            set: { pomodoroState.selectDuration($0) }
+        )
+    }
+
+    private var statusLabel: String {
+        switch pomodoroState.phase {
+        case .idle: return "Prêt"
+        case .running:
+            return pomodoroState.interval == .focus ? "Focus" : "Pause"
+        case .paused:
+            return pomodoroState.interval == .focus ? "Focus en pause" : "Pause en pause"
+        case .completed:
+            return pomodoroState.interval == .breakTime ? "Pause terminée" : "Terminé"
+        }
+    }
+
+    private var helperLabel: String {
+        switch pomodoroState.phase {
+        case .idle: return "Le démarrage repart de zéro."
+        case .running:
+            return pomodoroState.interval == .focus
+                ? "Visible dans la barre des menus."
+                : "La pause a démarré automatiquement."
+        case .paused: return "Le décompte est suspendu."
+        case .completed:
+            return pomodoroState.completedFocusSessions >= PomodoroTimer.sessionsPerCycle
+                ? "Cycle terminé — bravo."
+                : "Prêt pour la session suivante."
+        }
+    }
+
+    @ViewBuilder
+    private var controls: some View {
+        switch pomodoroState.phase {
+        case .idle, .completed:
+            Button(action: pomodoroState.start) {
+                Label(
+                    startButtonLabel,
+                    systemImage: "play.fill"
+                )
+            }
+            .buttonStyle(.borderedProminent)
+        case .running:
+            Button(action: pomodoroState.pause) {
+                Image(systemName: "pause.fill")
+            }
+            .help("Mettre en pause")
+            Button("Reset", action: pomodoroState.reset)
+        case .paused:
+            Button(action: pomodoroState.resume) {
+                Label("Reprendre", systemImage: "play.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            Button("Reset", action: pomodoroState.reset)
+        }
+    }
+
+    private var startButtonLabel: String {
+        guard pomodoroState.phase == .completed else { return "Démarrer" }
+        return pomodoroState.completedFocusSessions >= PomodoroTimer.sessionsPerCycle
+            ? "Nouveau cycle"
+            : "Session suivante"
     }
 }
 
@@ -264,6 +402,98 @@ struct VPSCompactCard: View {
     }
 
     private func percent(_ value: Double) -> String { "\(Int(value.rounded()))%" }
+}
+
+struct VercelAnalyticsCompactCard: View {
+    @ObservedObject var usageState: UsageState
+    @AppStorage("popover.vercelAnalyticsCollapsed") private var isCollapsed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            CollapsibleProviderHeader(
+                title: "Vercel Analytics",
+                symbol: "chart.bar.xaxis",
+                detail: compactDetail,
+                isCollapsed: $isCollapsed
+            )
+            if !isCollapsed {
+                if let snapshot = usageState.hotelRadarAnalytics {
+                    siteRow(site: .hotelRadar, snapshot: snapshot)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+                if usageState.hotelRadarAnalytics != nil
+                    && usageState.theCatalogueAnalytics != nil {
+                    Divider()
+                }
+                if let snapshot = usageState.theCatalogueAnalytics {
+                    siteRow(site: .theCatalogue, snapshot: snapshot)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+                if usageState.isLoadingHotelRadarAnalytics
+                    || usageState.isLoadingTheCatalogueAnalytics {
+                    HStack(spacing: 8) {
+                        ProgressView().scaleEffect(0.7)
+                        Text("Chargement de Vercel Analytics…")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                if let error = usageState.hotelRadarAnalyticsError {
+                    Text("Hotel Radar : \(error)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                if let error = usageState.theCatalogueAnalyticsError {
+                    Text("The Catalogue : \(error)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
+    private var compactDetail: String? {
+        let count = [
+            usageState.hotelRadarAnalytics,
+            usageState.theCatalogueAnalytics
+        ]
+        .compactMap { $0?.metrics.thirtyDays.visitors }
+        .reduce(0, +)
+        return count > 0 ? "\(count) visiteurs / 30 j" : nil
+    }
+
+    private func siteRow(
+        site: VercelAnalyticsSite,
+        snapshot: VercelAnalyticsSnapshot
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(site.displayName)
+                    .font(.caption.bold())
+                Spacer()
+                Link(destination: site.dashboardURL) {
+                    Image(systemName: "arrow.up.right.square")
+                }
+            }
+            HStack(spacing: 18) {
+                compactMetric("Aujourd’hui", snapshot.metrics.today.visitors)
+                compactMetric("7 jours", snapshot.metrics.sevenDays.visitors)
+                compactMetric("30 jours", snapshot.metrics.thirtyDays.visitors)
+                Spacer()
+            }
+        }
+    }
+
+    private func compactMetric(_ title: String, _ value: Int) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text("\(value)")
+                .font(.system(.body, design: .rounded).bold())
+                .monospacedDigit()
+            Text(title)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+    }
 }
 
 struct MiniSparkline: View {
@@ -681,6 +911,43 @@ struct SettingsViewWrapper: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 4) {
+                Text("Dokploy (optionnel)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("https://dokploy.example.com", text: $settingsState.dokployBaseURL)
+                    .textFieldStyle(.roundedBorder)
+                SecureField("Clé API Dokploy", text: $settingsState.dokployAPIKey)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+                Toggle("Notifier les déploiements terminés", isOn: $settingsState.dokployNotificationsEnabled)
+                    .toggleStyle(.switch)
+                Text("Clé API avec permission de lecture des déploiements. Les secrets restent dans le Keychain.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Vercel Analytics")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                SecureField("Jeton API Vercel", text: $settingsState.vercelAPIToken)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+                Text("Projets Hotel Radar et The Catalogue préconfigurés. Le jeton reste dans le Keychain de l’app.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Link(
+                    "Créer un jeton Vercel",
+                    destination: URL(string: "https://vercel.com/account/tokens")!
+                )
+                .font(.caption2)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
                 Text("OpenRouter API Key (optionnel)")
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -750,7 +1017,7 @@ struct SettingsViewWrapper: View {
 
             Toggle(isOn: $settingsState.alertsEnabled) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Notifications d’anomalies")
+                    Text("Notifications macOS")
                     Text("macOS demandera l’autorisation uniquement lors de l’activation.")
                         .font(.caption2)
                         .foregroundColor(.secondary)

@@ -12,6 +12,7 @@ A lightweight native macOS menu bar app for monitoring AI usage, developer activ
 - Codex limits and local token activity
 - OpenRouter credits and activity analytics
 - Optional Cline Pass usage limits
+- Built-in Pomodoro cycles with 20, 25 and 45-minute focus sessions, automatic five-minute breaks, session counter and menu bar alerts
 - Collapsible menu bar sections with persistent visibility preferences
 - GitHub activity summary for the last 30 days
 - Website analytics through a compatible Plausible-backed status API

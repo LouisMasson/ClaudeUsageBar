@@ -9,14 +9,21 @@ class StatusBarController: NSObject {
     private var dashboardWindow: NSWindow?
     private var refreshTimer: Timer?
     private var vpsRefreshTimer: Timer?
+    private var dokployRefreshTimer: Timer?
+    private var isRefreshingDokploy = false
 
     let usageState = UsageState()
     let settingsState = SettingsState()
+    let pomodoroState = PomodoroTimer()
     private lazy var notchOverlay = NotchOverlayController(usageState: usageState)
 
     override init() {
         super.init()
+        NotificationManager.shared.cancelPomodoroCompletion()
         setupStatusItem()
+        pomodoroState.onStateChange = { [weak self] in
+            self?.updateStatusButton(utilization: self?.usageState.sessionUtilization ?? 0)
+        }
         setupPopover()
         applyNotchOverlayPreference()
         loadCredentialsAndRefresh()
@@ -41,6 +48,7 @@ class StatusBarController: NSObject {
 
         let popoverView = PopoverView(
             usageState: usageState,
+            pomodoroState: pomodoroState,
             onRefresh: { [weak self] in
                 Task {
                     guard let self else { return }
@@ -66,14 +74,25 @@ class StatusBarController: NSObject {
         guard let button = statusItem.button else { return }
 
         let icon = MenuBarIcon.saved
+        let pomodoroTitle = pomodoroState.isActive ? " \(pomodoroState.formattedTime)" : ""
+        let toolTip = pomodoroState.isActive
+            ? "\(pomodoroState.interval == .focus ? "Focus" : "Pause") \(pomodoroState.phase == .paused ? "en pause" : "en cours") — \(pomodoroState.formattedTime)"
+            : "AI Usage Monitor — \(icon.label)"
+
         if let symbolName = icon.systemSymbolName,
            let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: icon.label) {
             let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
             button.image = image.withSymbolConfiguration(configuration)
             button.image?.isTemplate = true
-            button.imagePosition = .imageOnly
-            button.attributedTitle = NSAttributedString(string: "")
-            button.toolTip = "AI Usage Monitor — \(icon.label)"
+            button.imagePosition = pomodoroTitle.isEmpty ? .imageOnly : .imageLeading
+            button.attributedTitle = NSAttributedString(
+                string: pomodoroTitle,
+                attributes: [
+                    .foregroundColor: NSColor.labelColor,
+                    .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+                ]
+            )
+            button.toolTip = toolTip
             return
         }
 
@@ -82,7 +101,7 @@ class StatusBarController: NSObject {
         // utilization level is shown in detail in the popover.
         let color = NSColor.labelColor
 
-        let text = "◐"
+        let text = "◐\(pomodoroTitle)"
 
         let attributed = NSMutableAttributedString(string: text)
         attributed.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: text.count))
@@ -91,7 +110,7 @@ class StatusBarController: NSObject {
         button.image = nil
         button.imagePosition = .noImage
         button.attributedTitle = attributed
-        button.toolTip = "AI Usage Monitor — \(icon.label)"
+        button.toolTip = toolTip
     }
 
     @objc private func togglePopover() {
@@ -117,10 +136,17 @@ class StatusBarController: NSObject {
         settingsState.githubToken = creds?.githubToken ?? ""
         settingsState.vpsBaseURL = creds?.vpsBaseURL ?? "https://status.patronusguardian.org"
         settingsState.vpsAPIToken = creds?.vpsAPIToken ?? ""
+        settingsState.dokployBaseURL = creds?.dokployBaseURL ?? ""
+        settingsState.dokployAPIKey = creds?.dokployAPIKey ?? ""
+        settingsState.vercelAPIToken = creds?.vercelAPIToken ?? ""
         settingsState.claudeOAuthEnabled = UserDefaults.standard.object(forKey: SettingsState.claudeOAuthKey) == nil
             ? true
             : UserDefaults.standard.bool(forKey: SettingsState.claudeOAuthKey)
         settingsState.alertsEnabled = UserDefaults.standard.bool(forKey: SettingsState.alertsKey)
+        settingsState.dokployNotificationsEnabled =
+            UserDefaults.standard.object(forKey: SettingsState.dokployNotificationsKey) == nil
+                ? true
+                : UserDefaults.standard.bool(forKey: SettingsState.dokployNotificationsKey)
         settingsState.anomalyProfile = AnomalyProfile(
             rawValue: UserDefaults.standard.string(forKey: SettingsState.anomalyProfileKey) ?? "balanced"
         ) ?? .balanced
@@ -163,12 +189,17 @@ class StatusBarController: NSObject {
         let githubToken = settingsState.githubToken.trimmingCharacters(in: .whitespacesAndNewlines)
         let vpsBaseURL = settingsState.vpsBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let vpsToken = settingsState.vpsAPIToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        let dokployBaseURL = settingsState.dokployBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let dokployAPIKey = settingsState.dokployAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let vercelAPIToken = settingsState.vercelAPIToken.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let hasManualClaude = !orgId.isEmpty && !cookie.isEmpty
         let hasOptionalIntegration = !openRouterKey.isEmpty
             || !openRouterManagementKey.isEmpty
             || !clineCookie.isEmpty
             || !vpsToken.isEmpty
+            || !dokployAPIKey.isEmpty
+            || !vercelAPIToken.isEmpty
             || !githubToken.isEmpty
         guard settingsState.claudeOAuthEnabled || hasManualClaude || hasOptionalIntegration else {
             return
@@ -190,7 +221,10 @@ class StatusBarController: NSObject {
             clineSessionCookie: clineCookie,
             githubToken: githubToken,
             vpsBaseURL: vpsBaseURL.isEmpty ? "https://status.patronusguardian.org" : vpsBaseURL,
-            vpsAPIToken: vpsToken
+            vpsAPIToken: vpsToken,
+            dokployBaseURL: dokployBaseURL,
+            dokployAPIKey: dokployAPIKey,
+            vercelAPIToken: vercelAPIToken
         )
         _ = KeychainHelper.saveAll(creds)
 
@@ -198,6 +232,10 @@ class StatusBarController: NSObject {
         UserDefaults.standard.set(settingsState.notchOverlayEnabled, forKey: SettingsState.notchOverlayKey)
         UserDefaults.standard.set(settingsState.claudeOAuthEnabled, forKey: SettingsState.claudeOAuthKey)
         UserDefaults.standard.set(settingsState.alertsEnabled, forKey: SettingsState.alertsKey)
+        UserDefaults.standard.set(
+            settingsState.dokployNotificationsEnabled,
+            forKey: SettingsState.dokployNotificationsKey
+        )
         UserDefaults.standard.set(settingsState.anomalyProfile.rawValue, forKey: SettingsState.anomalyProfileKey)
         UserDefaults.standard.set(settingsState.vpsAnomaliesEnabled, forKey: SettingsState.vpsAnomaliesKey)
         UserDefaults.standard.set(settingsState.modelAnomaliesEnabled, forKey: SettingsState.modelAnomaliesKey)
@@ -299,6 +337,8 @@ class StatusBarController: NSObject {
             }
         }()
         async let vpsResult: Void = refreshVPS(using: creds)
+        async let dokployResult: Void = refreshDokploy(using: creds)
+        async let vercelAnalyticsResult: Void = refreshVercelAnalytics(using: creds)
 
         // Claude is optional: a missing Claude setup no longer prevents Codex,
         // OpenRouter, Cline or VPS data from refreshing.
@@ -344,10 +384,8 @@ class StatusBarController: NSObject {
         case .success(let credits):
             usageState.openRouterCredits = credits
             usageState.openRouterError = nil
-            notifyNewAnomalies(usageState.recordQuotaAnomalies(
-                source: "OpenRouter", metric: "credits",
-                utilization: credits.utilization, projected: nil
-            ))
+            usageState.resolveLegacyOpenRouterAnomalies()
+            NotificationManager.shared.checkOpenRouterBalance(credits)
         case .failure(let error):
             usageState.openRouterCredits = nil
             usageState.openRouterError = error.localizedDescription
@@ -396,6 +434,8 @@ class StatusBarController: NSObject {
 
         usageState.isLoading = false
         _ = await vpsResult
+        _ = await dokployResult
+        _ = await vercelAnalyticsResult
         await refreshOpenRouterActivity()
     }
 
@@ -447,6 +487,102 @@ class StatusBarController: NSObject {
             await syncVPSAnomalies(using: creds)
         } catch {
             usageState.vpsError = error.localizedDescription
+        }
+    }
+
+    private func refreshDokploy(using creds: KeychainHelper.Credentials) async {
+        guard !isRefreshingDokploy else { return }
+        let notificationsEnabled =
+            UserDefaults.standard.object(forKey: SettingsState.dokployNotificationsKey) == nil
+                ? true
+                : UserDefaults.standard.bool(forKey: SettingsState.dokployNotificationsKey)
+        guard notificationsEnabled,
+              !creds.dokployBaseURL.isEmpty,
+              !creds.dokployAPIKey.isEmpty else {
+            return
+        }
+
+        isRefreshingDokploy = true
+        defer { isRefreshingDokploy = false }
+        do {
+            let deployments = try await DokployAPIService.shared.fetchDeployments(
+                baseURL: creds.dokployBaseURL,
+                apiKey: creds.dokployAPIKey
+            )
+            let finished = DokployDeploymentTracker.newlyFinished(
+                deployments,
+                baseURL: creds.dokployBaseURL
+            )
+            finished.forEach { NotificationManager.shared.notifyDokployDeployment($0) }
+        } catch {
+            // Dokploy is optional. A transient or authentication failure must not
+            // disturb the usage/VPS refresh cycle.
+        }
+    }
+
+    private func refreshVercelAnalytics(
+        using creds: KeychainHelper.Credentials,
+        force: Bool = false
+    ) async {
+        let token = creds.vercelAPIToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else {
+            usageState.hotelRadarAnalytics = nil
+            usageState.hotelRadarAnalyticsError = nil
+            usageState.isLoadingHotelRadarAnalytics = false
+            usageState.theCatalogueAnalytics = nil
+            usageState.theCatalogueAnalyticsError = nil
+            usageState.isLoadingTheCatalogueAnalytics = false
+            return
+        }
+        if !force,
+           let hotelRadar = usageState.hotelRadarAnalytics,
+           let theCatalogue = usageState.theCatalogueAnalytics,
+           Date().timeIntervalSince(hotelRadar.fetchedAt) < 15 * 60,
+           Date().timeIntervalSince(theCatalogue.fetchedAt) < 15 * 60 {
+            return
+        }
+
+        usageState.isLoadingHotelRadarAnalytics = true
+        usageState.isLoadingTheCatalogueAnalytics = true
+        usageState.hotelRadarAnalyticsError = nil
+        usageState.theCatalogueAnalyticsError = nil
+
+        async let hotelRadarResult = fetchVercelAnalyticsResult(
+            for: .hotelRadar,
+            token: token
+        )
+        async let theCatalogueResult = fetchVercelAnalyticsResult(
+            for: .theCatalogue,
+            token: token
+        )
+        let (hotelRadar, theCatalogue) = await (hotelRadarResult, theCatalogueResult)
+
+        switch hotelRadar {
+        case .success(let snapshot):
+            usageState.hotelRadarAnalytics = snapshot
+        case .failure(let error):
+            usageState.hotelRadarAnalyticsError = error.localizedDescription
+        }
+        switch theCatalogue {
+        case .success(let snapshot):
+            usageState.theCatalogueAnalytics = snapshot
+        case .failure(let error):
+            usageState.theCatalogueAnalyticsError = error.localizedDescription
+        }
+        usageState.isLoadingHotelRadarAnalytics = false
+        usageState.isLoadingTheCatalogueAnalytics = false
+    }
+
+    private func fetchVercelAnalyticsResult(
+        for site: VercelAnalyticsSite,
+        token: String
+    ) async -> Result<VercelAnalyticsSnapshot, Error> {
+        do {
+            return .success(
+                try await VercelAnalyticsService.shared.fetchAnalytics(for: site, token: token)
+            )
+        } catch {
+            return .failure(error)
         }
     }
 
@@ -540,7 +676,6 @@ class StatusBarController: NSObject {
         do {
             let snapshot = try await OpenRouterAPIService.shared.fetchActivitySnapshot(apiKey: key)
             usageState.openRouterActivity = snapshot
-            notifyNewAnomalies(recordOpenRouterActivityAnomalies(snapshot))
         } catch {
             usageState.openRouterActivityError = error.localizedDescription
         }
@@ -601,24 +736,6 @@ class StatusBarController: NSObject {
             )
         }
         return opened
-    }
-
-    private func recordOpenRouterActivityAnomalies(_ snapshot: OpenRouterActivitySnapshot) -> [AnomalyEvent] {
-        let summary = snapshot.summary(days: 7)
-        guard let today = summary.daily.last else { return [] }
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "yyyy-MM-dd"
-        let isCompleteDay = today.date != formatter.string(from: Date())
-        let previous = summary.daily.dropLast().map(\.spend)
-        let todayModels = snapshot.modelActivities.filter { $0.date == today.date }.sorted { $0.spend > $1.spend }
-        let todayKeys = snapshot.keyActivities.filter { $0.date == today.date }.sorted { $0.spend > $1.spend }
-        return usageState.recordDailyAnomaly(
-            source: "OpenRouter", metric: "daily_spend", todayValue: today.spend,
-            previousDays: previous, attribution: todayModels.first?.name ?? todayKeys.first?.name,
-            isCompleteDay: isCompleteDay
-        )
     }
 
     private func syncVPSAnomalies(using creds: KeychainHelper.Credentials) async {
@@ -695,10 +812,20 @@ class StatusBarController: NSObject {
             }
         }
         vpsRefreshTimer?.tolerance = 20
+
+        dokployRefreshTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                let creds = KeychainHelper.loadAll() ?? KeychainHelper.Credentials()
+                await self.refreshDokploy(using: creds)
+            }
+        }
+        dokployRefreshTimer?.tolerance = 5
     }
 
     deinit {
         refreshTimer?.invalidate()
         vpsRefreshTimer?.invalidate()
+        dokployRefreshTimer?.invalidate()
     }
 }

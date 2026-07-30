@@ -174,39 +174,78 @@ struct DashboardView: View {
                 Label("Website Analytics", systemImage: "chart.bar.xaxis")
                     .font(.title2.bold())
                 Spacer()
-                Link(destination: URL(string: "https://analytics.patronusguardian.org")!) {
-                    Label("Ouvrir Plausible", systemImage: "arrow.up.right.square")
+                HStack(spacing: 12) {
+                    Link(destination: URL(string: "https://analytics.patronusguardian.org")!) {
+                        Label("Plausible", systemImage: "arrow.up.right.square")
+                    }
+                    Link(destination: VercelAnalyticsSite.hotelRadar.dashboardURL) {
+                        Label("Hotel Radar", systemImage: "arrow.up.right.square")
+                    }
+                    Link(destination: VercelAnalyticsSite.theCatalogue.dashboardURL) {
+                        Label("The Catalogue", systemImage: "arrow.up.right.square")
+                    }
                 }
             }
 
-            if let status = usageState.vpsStatus {
-                let sites = websiteAnalyticsSites(from: status)
-                if sites.isEmpty {
-                    Text("Les statistiques Plausible ne sont pas encore disponibles.")
+            let sites = usageState.vpsStatus.map(websiteAnalyticsSites) ?? []
+            if sites.isEmpty
+                && usageState.hotelRadarAnalytics == nil
+                && usageState.theCatalogueAnalytics == nil {
+                VStack(spacing: 8) {
+                    if usageState.isLoadingHotelRadarAnalytics
+                        || usageState.isLoadingTheCatalogueAnalytics {
+                        ProgressView()
+                    }
+                    Text(
+                        usageState.hotelRadarAnalyticsError
+                            ?? usageState.theCatalogueAnalyticsError
+                            ?? usageState.vpsError
+                            ?? "Ajoutez un jeton Vercel dans les réglages pour charger les projets."
+                    )
                         .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(24)
-                        .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.04)))
-                } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 12)], spacing: 12) {
-                        ForEach(sites) { site in
-                            if let analytics = site.analytics {
-                                WebsiteAnalyticsCard(
-                                    title: websiteDisplayName(for: site.name),
-                                    domain: site.name,
-                                    analytics: analytics,
-                                    isAvailable: site.isHealthy
-                                )
-                            }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(24)
+                .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.04)))
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 12)], spacing: 12) {
+                    ForEach(sites) { site in
+                        if let analytics = site.analytics {
+                            WebsiteAnalyticsCard(
+                                title: websiteDisplayName(for: site.name),
+                                domain: site.name,
+                                analytics: analytics.websiteMetrics,
+                                isAvailable: site.isHealthy
+                            )
                         }
                     }
+                    if let hotelRadar = usageState.hotelRadarAnalytics {
+                        WebsiteAnalyticsCard(
+                            title: VercelAnalyticsSite.hotelRadar.displayName,
+                            domain: VercelAnalyticsSite.hotelRadar.domain,
+                            analytics: hotelRadar.metrics,
+                            isAvailable: true
+                        )
+                    }
+                    if let theCatalogue = usageState.theCatalogueAnalytics {
+                        WebsiteAnalyticsCard(
+                            title: VercelAnalyticsSite.theCatalogue.displayName,
+                            domain: VercelAnalyticsSite.theCatalogue.domain,
+                            analytics: theCatalogue.metrics,
+                            isAvailable: true
+                        )
+                    }
                 }
-            } else {
-                Text(usageState.vpsError ?? "Connectez l’API VPS pour charger les statistiques Plausible.")
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(24)
-                    .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.04)))
+                if let error = usageState.hotelRadarAnalyticsError {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                if let error = usageState.theCatalogueAnalyticsError {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
         }
     }
@@ -514,7 +553,7 @@ struct DashboardView: View {
     }
 
     private func websiteAnalyticsSites(from status: VPSMenuStatus) -> [VPSAvailabilityItem] {
-        let order = ["louismasson.me", "thecatalogue.studio", "nuitsansoeufdoux.com"]
+        let order = ["louismasson.me", "nuitsansoeufdoux.com"]
         return order.compactMap { domain in
             status.sites.items.first { $0.name == domain && $0.analytics != nil }
         }
@@ -532,7 +571,7 @@ struct DashboardView: View {
 struct WebsiteAnalyticsCard: View {
     let title: String
     let domain: String
-    let analytics: VPSPlausibleAnalytics
+    let analytics: WebsiteAnalyticsMetrics
     let isAvailable: Bool
 
     var body: some View {

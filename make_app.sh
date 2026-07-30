@@ -14,6 +14,7 @@ echo "==> Creating .app bundle..."
 rm -rf "$APP_NAME.app"
 mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources"
 cp "$BUILD_DIR/$APP_NAME" "$APP_DIR/MacOS/$APP_NAME"
+cp "assets/AppIcon.icns" "$APP_DIR/Resources/AppIcon.icns"
 
 cat > "$APP_DIR/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -23,6 +24,7 @@ cat > "$APP_DIR/Info.plist" << EOF
 <dict>
     <key>CFBundleExecutable</key>        <string>$APP_NAME</string>
     <key>CFBundleIdentifier</key>        <string>$BUNDLE_ID</string>
+    <key>CFBundleIconFile</key>          <string>AppIcon</string>
     <key>CFBundleName</key>              <string>$APP_NAME</string>
     <key>CFBundleVersion</key>           <string>$VERSION</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>

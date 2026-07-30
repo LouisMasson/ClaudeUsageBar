@@ -114,6 +114,8 @@ struct OpenRouterCreditsResponse: Codable {
 }
 
 struct OpenRouterCredits: Codable {
+    static let lowBalanceThreshold = 2.0
+
     let totalCredits: Double
     let totalUsage: Double
 
@@ -123,6 +125,7 @@ struct OpenRouterCredits: Codable {
     }
 
     var remaining: Double { max(0, totalCredits - totalUsage) }
+    var hasLowBalance: Bool { remaining < Self.lowBalanceThreshold }
 
     var utilization: Int {
         guard totalCredits > 0 else { return 0 }
@@ -509,6 +512,7 @@ class SettingsState: ObservableObject {
     static let anomalyProfileKey = "anomalyProfile"
     static let vpsAnomaliesKey = "vpsAnomaliesEnabled"
     static let modelAnomaliesKey = "modelAnomaliesEnabled"
+    static let dokployNotificationsKey = "dokployNotificationsEnabled"
 
     @Published var orgId: String = ""
     @Published var cookie: String = ""
@@ -518,10 +522,17 @@ class SettingsState: ObservableObject {
     @Published var githubToken: String = ""
     @Published var vpsBaseURL: String = "https://status.patronusguardian.org"
     @Published var vpsAPIToken: String = ""
+    @Published var dokployBaseURL: String = ""
+    @Published var dokployAPIKey: String = ""
+    @Published var vercelAPIToken: String = ""
     @Published var claudeOAuthEnabled: Bool = UserDefaults.standard.object(forKey: SettingsState.claudeOAuthKey) == nil
         ? true
         : UserDefaults.standard.bool(forKey: SettingsState.claudeOAuthKey)
     @Published var alertsEnabled: Bool = UserDefaults.standard.bool(forKey: SettingsState.alertsKey)
+    @Published var dokployNotificationsEnabled: Bool =
+        UserDefaults.standard.object(forKey: SettingsState.dokployNotificationsKey) == nil
+            ? true
+            : UserDefaults.standard.bool(forKey: SettingsState.dokployNotificationsKey)
     @Published var anomalyProfile: AnomalyProfile = AnomalyProfile(
         rawValue: UserDefaults.standard.string(forKey: SettingsState.anomalyProfileKey) ?? "balanced"
     ) ?? .balanced
@@ -561,6 +572,12 @@ class UsageState: ObservableObject {
     @Published var vpsError: String?
     @Published var vpsLastUpdated: Date?
     @Published var vpsHistory: [VPSHistorySample] = VPSHistoryStore.load()
+    @Published var hotelRadarAnalytics: VercelAnalyticsSnapshot?
+    @Published var hotelRadarAnalyticsError: String?
+    @Published var isLoadingHotelRadarAnalytics = false
+    @Published var theCatalogueAnalytics: VercelAnalyticsSnapshot?
+    @Published var theCatalogueAnalyticsError: String?
+    @Published var isLoadingTheCatalogueAnalytics = false
     @Published var anomalyEvents: [AnomalyEvent] = AnomalyHistoryStore.loadEvents()
     @Published var anomalySyncError: String?
 
@@ -687,6 +704,21 @@ class UsageState: ObservableObject {
         anomalyEvents.removeAll { !$0.isOpen && ($0.resolvedAt ?? $0.startedAt) < cutoff }
         AnomalyHistoryStore.saveEvents(anomalyEvents)
         return newlyOpened
+    }
+
+    /// Closes percentage/burn-rate OpenRouter incidents created by older builds.
+    /// OpenRouter now has one dedicated alert based solely on remaining dollars.
+    func resolveLegacyOpenRouterAnomalies(at date: Date = Date()) {
+        var changed = false
+        for index in anomalyEvents.indices
+            where anomalyEvents[index].source == "OpenRouter" && anomalyEvents[index].isOpen {
+            anomalyEvents[index].state = "resolved"
+            anomalyEvents[index].resolvedAt = date
+            changed = true
+        }
+        if changed {
+            AnomalyHistoryStore.saveEvents(anomalyEvents)
+        }
     }
 
     func recordQuotaAnomalies(source: String, metric: String, utilization: Int, projected: Int?) -> [AnomalyEvent] {

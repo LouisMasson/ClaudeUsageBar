@@ -34,6 +34,9 @@ enum KeychainHelper {
         var githubToken: String = ""
         var vpsBaseURL: String = "https://status.patronusguardian.org"
         var vpsAPIToken: String = ""
+        var dokployBaseURL: String = ""
+        var dokployAPIKey: String = ""
+        var vercelAPIToken: String = ""
 
         init(
             organizationId: String = "",
@@ -43,7 +46,10 @@ enum KeychainHelper {
             clineSessionCookie: String = "",
             githubToken: String = "",
             vpsBaseURL: String = "https://status.patronusguardian.org",
-            vpsAPIToken: String = ""
+            vpsAPIToken: String = "",
+            dokployBaseURL: String = "",
+            dokployAPIKey: String = "",
+            vercelAPIToken: String = ""
         ) {
             self.organizationId = organizationId
             self.sessionCookie = sessionCookie
@@ -53,11 +59,14 @@ enum KeychainHelper {
             self.githubToken = githubToken
             self.vpsBaseURL = vpsBaseURL
             self.vpsAPIToken = vpsAPIToken
+            self.dokployBaseURL = dokployBaseURL
+            self.dokployAPIKey = dokployAPIKey
+            self.vercelAPIToken = vercelAPIToken
         }
 
         private enum CodingKeys: String, CodingKey {
             case organizationId, sessionCookie, openRouterAPIKey, openRouterManagementKey, clineSessionCookie
-            case githubToken, vpsBaseURL, vpsAPIToken
+            case githubToken, vpsBaseURL, vpsAPIToken, dokployBaseURL, dokployAPIKey, vercelAPIToken
         }
 
         init(from decoder: Decoder) throws {
@@ -71,6 +80,9 @@ enum KeychainHelper {
             vpsBaseURL = try c.decodeIfPresent(String.self, forKey: .vpsBaseURL)
                 ?? "https://status.patronusguardian.org"
             vpsAPIToken = try c.decodeIfPresent(String.self, forKey: .vpsAPIToken) ?? ""
+            dokployBaseURL = try c.decodeIfPresent(String.self, forKey: .dokployBaseURL) ?? ""
+            dokployAPIKey = try c.decodeIfPresent(String.self, forKey: .dokployAPIKey) ?? ""
+            vercelAPIToken = try c.decodeIfPresent(String.self, forKey: .vercelAPIToken) ?? ""
         }
     }
 
@@ -120,6 +132,8 @@ enum KeychainHelper {
         guard let creds = loadAll() else { return false }
         return (!creds.sessionCookie.isEmpty && !creds.organizationId.isEmpty)
             || !creds.vpsAPIToken.isEmpty
+            || !creds.dokployAPIKey.isEmpty
+            || !creds.vercelAPIToken.isEmpty
             || !creds.githubToken.isEmpty
     }
 

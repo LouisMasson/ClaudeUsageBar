@@ -7,8 +7,12 @@ enum SelfTestRunner {
         try testVPSStatusDecoding()
         try testOpenRouterActivitySummary()
         try testOpenRouterAnalyticsDecoding()
+        try testOpenRouterLowBalanceRule()
+        try testVercelAnalyticsDecoding()
         try testCodexUsageDecoding()
         try testLegacyCredentialMigration()
+        try testDokployDeploymentDecoding()
+        try testPomodoroTimer()
         try testAnomalyDecodingAndDetection()
         FileHandle.standardOutput.write(Data("ClaudeUsageBar self-tests: OK\n".utf8))
     }
@@ -57,6 +61,19 @@ enum SelfTestRunner {
         try require(row.cacheHitRate == 0.75, "OpenRouter cache hit rate")
     }
 
+    private static func testOpenRouterLowBalanceRule() throws {
+        let low = OpenRouterCredits(totalCredits: 10, totalUsage: 8.01)
+        let boundary = OpenRouterCredits(totalCredits: 10, totalUsage: 8)
+        let healthyDespiteHighUtilization = OpenRouterCredits(totalCredits: 100, totalUsage: 97)
+
+        try require(low.hasLowBalance, "OpenRouter must alert below $2 remaining")
+        try require(!boundary.hasLowBalance, "OpenRouter must not alert at exactly $2 remaining")
+        try require(
+            !healthyDespiteHighUtilization.hasLowBalance,
+            "OpenRouter percentage utilization must not trigger the balance alert"
+        )
+    }
+
     private static func testCodexUsageDecoding() throws {
         let rateJSON = #"{"rateLimits":{"limitId":"codex","limitName":null,"primary":{"usedPercent":19,"windowDurationMins":10080,"resetsAt":1784740062},"secondary":null,"credits":{"hasCredits":false,"unlimited":false,"balance":"0"},"planType":"plus"},"rateLimitsByLimitId":null}"#
         let rates = try JSONDecoder().decode(CodexRateLimitsResponse.self, from: Data(rateJSON.utf8))
@@ -83,6 +100,112 @@ enum SelfTestRunner {
         try require(credentials.vpsAPIToken.isEmpty, "Legacy VPS token default")
         try require(credentials.openRouterManagementKey.isEmpty, "Legacy OpenRouter management key default")
         try require(credentials.githubToken.isEmpty, "Legacy GitHub token default")
+        try require(credentials.dokployBaseURL.isEmpty, "Legacy Dokploy URL default")
+        try require(credentials.dokployAPIKey.isEmpty, "Legacy Dokploy API key default")
+        try require(credentials.vercelAPIToken.isEmpty, "Legacy Vercel API token default")
+    }
+
+    private static func testDokployDeploymentDecoding() throws {
+        let json = #"[{"deploymentId":"dep-1","title":"Deploy main","description":null,"status":"done","createdAt":"2026-07-26T10:00:00.000Z","startedAt":"2026-07-26T10:00:01.000Z","finishedAt":"2026-07-26T10:01:00.000Z","errorMessage":null,"application":{"name":"Hotel Radar","environment":{"name":"production","project":{"name":"Hotel Radar"}}},"compose":null}]"#
+        let deployments = try JSONDecoder().decode([DokployDeployment].self, from: Data(json.utf8))
+        let deployment = try requireValue(deployments.first, "Dokploy deployment")
+        try require(deployment.isTerminal, "Dokploy terminal status")
+        try require(deployment.isSuccessful, "Dokploy success status")
+        try require(deployment.service?.name == "Hotel Radar", "Dokploy service name")
+        try require(deployment.service?.environment?.name == "production", "Dokploy environment")
+
+        let suiteName = "ClaudeUsageBarSelfTest.\(UUID().uuidString)"
+        let defaults = try requireValue(UserDefaults(suiteName: suiteName), "Dokploy test defaults")
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        try require(
+            DokployDeploymentTracker.newlyFinished(
+                deployments, baseURL: "https://dokploy.example.com/api/", defaults: defaults
+            ).isEmpty,
+            "Dokploy first sync must only create a baseline"
+        )
+
+        let secondJSON = json.replacingOccurrences(of: "dep-1", with: "dep-2")
+        let second = try JSONDecoder().decode([DokployDeployment].self, from: Data(secondJSON.utf8))
+        let newlyFinished = DokployDeploymentTracker.newlyFinished(
+            deployments + second,
+            baseURL: "https://dokploy.example.com",
+            defaults: defaults
+        )
+        try require(newlyFinished.map(\.deploymentId) == ["dep-2"], "Dokploy deployment deduplication")
+    }
+
+    private static func testVercelAnalyticsDecoding() throws {
+        let json = #"{"version":1,"query":{"since":"2026-07-01"},"data":{"pageviews":42,"visitors":17}}"#
+        struct Response: Decodable {
+            struct DataPayload: Decodable {
+                let pageviews: Int
+                let visitors: Int
+            }
+            let data: DataPayload
+        }
+        let response = try JSONDecoder().decode(Response.self, from: Data(json.utf8))
+        try require(response.data.visitors == 17, "Vercel Analytics visitors")
+        try require(response.data.pageviews == 42, "Vercel Analytics pageviews")
+        try require(
+            VercelAnalyticsSite.hotelRadar.projectID
+                != VercelAnalyticsSite.theCatalogue.projectID,
+            "Vercel Analytics projects must stay distinct"
+        )
+        try require(
+            VercelAnalyticsSite.theCatalogue.domain == "thecatalogue.studio",
+            "The Catalogue production domain"
+        )
+    }
+
+    private static func testPomodoroTimer() throws {
+        let suiteName = "ClaudeUsageBarPomodoroSelfTest.\(UUID().uuidString)"
+        let defaults = try requireValue(UserDefaults(suiteName: suiteName), "Pomodoro test defaults")
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var currentDate = Date(timeIntervalSince1970: 1_700_000_000)
+        var scheduled: (seconds: Int, interval: PomodoroInterval, minutes: Int)?
+        var cancellationCount = 0
+        let timer = PomodoroTimer(
+            defaults: defaults,
+            now: { currentDate },
+            scheduleCompletion: { scheduled = ($0, $1, $2) },
+            cancelCompletion: { cancellationCount += 1 }
+        )
+
+        try require(timer.selectedMinutes == 20, "Pomodoro default duration")
+        try require(timer.formattedTime == "20:00", "Pomodoro default display")
+        timer.selectDuration(25)
+        timer.start()
+        try require(timer.phase == .running, "Pomodoro starts running")
+        try require(timer.remainingSeconds == 1_500, "Pomodoro start resets duration")
+        try require(scheduled?.seconds == 1_500, "Pomodoro completion schedule")
+        try require(scheduled?.interval == .focus, "Pomodoro focus notification")
+        try require(scheduled?.minutes == 25, "Pomodoro notification duration")
+
+        timer.pause()
+        try require(timer.phase == .paused, "Pomodoro pause")
+        timer.resume()
+        try require(timer.phase == .running, "Pomodoro resume")
+        currentDate = currentDate.addingTimeInterval(1_500)
+        timer.refresh()
+        try require(timer.interval == .breakTime, "Pomodoro automatic break")
+        try require(timer.remainingSeconds == 300, "Pomodoro five-minute break")
+        try require(timer.completedFocusSessions == 1, "Pomodoro session count")
+        try require(timer.currentSessionNumber == 1, "Pomodoro break session number")
+        try require(scheduled?.interval == .breakTime, "Pomodoro break notification")
+
+        currentDate = currentDate.addingTimeInterval(300)
+        timer.refresh()
+        try require(timer.phase == .completed, "Pomodoro break completion")
+        timer.start()
+        try require(timer.interval == .focus, "Pomodoro next focus interval")
+        try require(timer.currentSessionNumber == 2, "Pomodoro next session number")
+        timer.reset()
+        try require(timer.phase == .idle, "Pomodoro reset")
+        try require(timer.remainingSeconds == 1_500, "Pomodoro reset duration")
+        try require(timer.currentSessionNumber == 1, "Pomodoro reset session count")
+        try require(cancellationCount >= 3, "Pomodoro notification cancellation")
+        try require(PomodoroTimer.format(seconds: 65) == "01:05", "Pomodoro time formatting")
     }
 
     private static func testAnomalyDecodingAndDetection() throws {
@@ -104,7 +227,7 @@ enum SelfTestRunner {
         _ = detector.recordQuota(source: "Claude", metric: "session", utilization: 11, projected: nil, profile: .balanced, events: &events, at: start.addingTimeInterval(900))
         try require(events.first?.state == "resolved", "Reset and hysteresis resolution")
         let quiet = detector.recordDailyPace(
-            source: "OpenRouter", metric: "daily_spend", todayValue: 0,
+            source: "Test Model", metric: "daily_spend", todayValue: 0,
             previousDays: [0, 0, 0], attribution: nil, profile: .balanced,
             events: &events, at: start
         )

@@ -12,7 +12,7 @@ struct DashboardView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Vue d’ensemble")
                             .font(.largeTitle.bold())
-                        Text("Consommation IA et santé de l’infrastructure")
+                        Text("Consommation IA, analytics et déploiements")
                             .foregroundColor(.secondary)
                     }
                     Spacer()
@@ -22,70 +22,16 @@ struct DashboardView: View {
                     .disabled(usageState.isLoading)
                 }
 
-                anomalySection
                 aiSection
                 codexSection
                 githubActivitySection
-                openRouterActivitySection
+                dokploySection
                 websiteAnalyticsSection
-                vpsSection
+                openRouterActivitySection
             }
             .padding(28)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-    }
-
-    @ViewBuilder
-    private var anomalySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label("Journal d’anomalies", systemImage: "waveform.path.ecg.rectangle")
-                    .font(.title2.bold())
-                Spacer()
-                Text("7 derniers jours")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            if usageState.sortedAnomalies.isEmpty {
-                Label("Aucune anomalie détectée", systemImage: "checkmark.circle.fill")
-                    .foregroundColor(UsagePalette.green)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.04)))
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(usageState.sortedAnomalies.prefix(20).enumerated()), id: \.element.id) { index, event in
-                        if index > 0 { Divider() }
-                        HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: event.isOpen ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                                .foregroundColor(event.isOpen ? (event.isCritical ? UsagePalette.red : UsagePalette.orange) : UsagePalette.green)
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Text(event.message).font(.headline)
-                                    Spacer()
-                                    Text(event.isOpen ? "En cours" : "Résolue")
-                                        .font(.caption.bold())
-                                }
-                                HStack(spacing: 8) {
-                                    Text(event.source)
-                                    if let value = event.observedValue {
-                                        Text("Valeur \(value.formatted(.number.precision(.fractionLength(0...2))))")
-                                    }
-                                    if let baseline = event.baseline {
-                                        Text("Habituel \(baseline.low.formatted(.number.precision(.fractionLength(0...1))))–\(baseline.high.formatted(.number.precision(.fractionLength(0...1))))")
-                                    }
-                                    Text(event.startedAt.formatted(date: .abbreviated, time: .shortened))
-                                }
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            }
-                        }
-                        .padding(12)
-                    }
-                }
-                .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.04)))
-            }
-        }
     }
 
     @ViewBuilder
@@ -175,9 +121,6 @@ struct DashboardView: View {
                     .font(.title2.bold())
                 Spacer()
                 HStack(spacing: 12) {
-                    Link(destination: URL(string: "https://analytics.patronusguardian.org")!) {
-                        Label("Plausible", systemImage: "arrow.up.right.square")
-                    }
                     ForEach(usageState.trackedVercelProjects) { project in
                         if let url = project.dashboardURL {
                             Link(destination: url) {
@@ -188,17 +131,12 @@ struct DashboardView: View {
                 }
             }
 
-            let sites = usageState.vpsStatus.map(websiteAnalyticsSites) ?? []
-            if sites.isEmpty && !usageState.hasVercelAnalytics {
+            if usageState.trackedVercelProjects.isEmpty {
                 VStack(spacing: 8) {
-                    if usageState.isLoadingVercelAnalytics {
-                        ProgressView()
-                    }
-                    Text(
-                        usageState.vercelAnalyticsErrors.values.first
-                            ?? usageState.vpsError
-                            ?? "Ajoutez un jeton Vercel dans les réglages pour charger les projets."
-                    )
+                    Text("Aucun projet Vercel suivi.")
+                        .foregroundColor(.secondary)
+                    Text("Choisissez des projets dans les réglages.")
+                        .font(.caption)
                         .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity)
@@ -206,16 +144,6 @@ struct DashboardView: View {
                 .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.04)))
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 12)], spacing: 12) {
-                    ForEach(sites) { site in
-                        if let analytics = site.analytics {
-                            WebsiteAnalyticsCard(
-                                title: websiteDisplayName(for: site.name),
-                                domain: site.name,
-                                analytics: analytics.websiteMetrics,
-                                isAvailable: site.isHealthy
-                            )
-                        }
-                    }
                     ForEach(usageState.trackedVercelProjects) { project in
                         if let snapshot = usageState.vercelAnalytics[project.projectID] {
                             WebsiteAnalyticsCard(
@@ -227,6 +155,14 @@ struct DashboardView: View {
                         }
                     }
                 }
+                if usageState.isLoadingVercelAnalytics {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Chargement de Vercel Analytics…")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
                 ForEach(usageState.trackedVercelProjects) { project in
                     if let error = usageState.vercelAnalyticsErrors[project.projectID] {
                         Label("\(project.name) : \(error)", systemImage: "exclamationmark.triangle")
@@ -234,6 +170,51 @@ struct DashboardView: View {
                             .foregroundColor(.secondary)
                     }
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var dokploySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Dokploy", systemImage: "shippingbox")
+                    .font(.title2.bold())
+                Spacer()
+                if let projects = usageState.dokployProjects {
+                    Text("\(projects.count) projets · \(projects.reduce(0) { $0 + $1.services.count }) services")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            if let projects = usageState.dokployProjects {
+                if projects.isEmpty {
+                    Text("Aucun projet")
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(24)
+                        .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.04)))
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
+                        ForEach(projects) { project in
+                            DokployProjectCard(project: project)
+                        }
+                    }
+                }
+            } else if usageState.isLoadingDokploy {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Chargement de Dokploy…")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            } else {
+                Text(usageState.dokployError ?? "Ajoutez la clé API Dokploy dans les réglages.")
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(24)
+                    .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.04)))
             }
         }
     }
@@ -480,48 +461,6 @@ struct DashboardView: View {
         }
     }
 
-    @ViewBuilder
-    private var vpsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("VPS Contabo", systemImage: "server.rack")
-                .font(.title2.bold())
-            if let status = usageState.vpsStatus {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
-                    DashboardMetricCard(title: "CPU", value: percent(status.vps.cpuPercent), detail: status.vps.uptime, progress: status.vps.cpuPercent)
-                    DashboardMetricCard(title: "RAM", value: percent(status.vps.ramPercent), detail: "Mémoire utilisée", progress: status.vps.ramPercent)
-                    DashboardMetricCard(title: "SSD", value: percent(status.vps.diskPercent), detail: "Espace utilisé", progress: status.vps.diskPercent)
-                    DashboardMetricCard(title: "Disponibilité", value: "\(status.sites.healthy)/\(status.sites.total)", detail: "Sites · \(status.services.healthy)/\(status.services.total) services", progress: status.sites.total == 0 ? 0 : Double(status.sites.healthy) / Double(status.sites.total) * 100)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("CPU — historique 7 jours")
-                        .font(.headline)
-                    MiniSparkline(samples: usageState.vpsHistory.map(\.cpu))
-                        .frame(height: 110)
-                        .padding(12)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.04)))
-                }
-
-                HStack(alignment: .top, spacing: 16) {
-                    AvailabilityList(title: "Sites", items: status.sites.items)
-                    AvailabilityList(title: "Services", items: status.services.items)
-                }
-            } else {
-                VStack(spacing: 8) {
-                    Image(systemName: "server.rack")
-                        .font(.largeTitle)
-                        .foregroundColor(.secondary)
-                    Text("VPS non configuré").font(.headline)
-                    Text(usageState.vpsError ?? "Ajoutez le token API dans les réglages.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(30)
-            }
-        }
-    }
-
     private func percent(_ value: Double) -> String { "\(Int(value.rounded()))%" }
 
     private func currency(_ value: Double) -> String { String(format: "$%.2f", value) }
@@ -538,21 +477,6 @@ struct DashboardView: View {
     private func duration(_ seconds: Int) -> String {
         if seconds >= 60 { return "\(seconds / 60) min \(seconds % 60) s" }
         return "\(seconds) s"
-    }
-
-    private func websiteAnalyticsSites(from status: VPSMenuStatus) -> [VPSAvailabilityItem] {
-        let order = ["louismasson.me", "nuitsansoeufdoux.com"]
-        return order.compactMap { domain in
-            status.sites.items.first { $0.name == domain && $0.analytics != nil }
-        }
-    }
-
-    private func websiteDisplayName(for domain: String) -> String {
-        switch domain {
-        case "thecatalogue.studio": return "The Catalogue"
-        case "nuitsansoeufdoux.com": return "Nuit Sans Œuf Doux"
-        default: return "Louis Masson"
-        }
     }
 }
 
@@ -605,6 +529,68 @@ struct WebsiteAnalyticsCard: View {
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct DokployProjectCard: View {
+    let project: DokployProjectSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(projectColor)
+                    .frame(width: 8, height: 8)
+                Text(project.name).font(.headline)
+                Spacer()
+                Text("\(project.services.count) service\(project.services.count > 1 ? "s" : "")")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            if let description = project.description, !description.isEmpty {
+                Text(description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(project.services) { service in
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(color(for: service.status))
+                            .frame(width: 6, height: 6)
+                        Image(systemName: service.kind.symbol)
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                        Text(service.name)
+                            .font(.caption)
+                        Spacer()
+                        Text(service.status.label)
+                            .font(.caption2)
+                            .foregroundColor(color(for: service.status))
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.05)))
+    }
+
+    private var projectColor: Color {
+        if project.hasError { return UsagePalette.red }
+        if project.isDeploying { return UsagePalette.orange }
+        return UsagePalette.green
+    }
+
+    private func color(for status: DokployServiceStatus) -> Color {
+        switch status {
+        case .healthy: return UsagePalette.green
+        case .deploying: return UsagePalette.orange
+        case .error: return UsagePalette.red
+        case .unknown: return .secondary
+        }
     }
 }
 

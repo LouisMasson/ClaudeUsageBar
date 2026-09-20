@@ -91,6 +91,9 @@ enum APIError: LocalizedError {
     case rateLimited
     case serverError(Int)
     case decodingError(String)
+    /// The remote resource exists but the required feature is not enabled
+    /// (e.g. Web Analytics off on a Vercel project).
+    case notEnabled(String)
 
     var errorDescription: String? {
         switch self {
@@ -106,6 +109,8 @@ enum APIError: LocalizedError {
             return "Erreur serveur: \(code)"
         case .decodingError(let message):
             return "Erreur de decodage: \(message)"
+        case .notEnabled(let message):
+            return message
         }
     }
 }
@@ -157,7 +162,7 @@ enum NetworkRetry {
             switch apiError {
             case .serverError(let code): return code >= 500
             case .invalidResponse:       return true
-            case .unauthorized, .rateLimited, .decodingError, .invalidURL:
+            case .unauthorized, .rateLimited, .decodingError, .invalidURL, .notEnabled:
                 return false
             }
         }

@@ -572,12 +572,14 @@ class UsageState: ObservableObject {
     @Published var vpsError: String?
     @Published var vpsLastUpdated: Date?
     @Published var vpsHistory: [VPSHistorySample] = VPSHistoryStore.load()
-    @Published var hotelRadarAnalytics: VercelAnalyticsSnapshot?
-    @Published var hotelRadarAnalyticsError: String?
-    @Published var isLoadingHotelRadarAnalytics = false
-    @Published var theCatalogueAnalytics: VercelAnalyticsSnapshot?
-    @Published var theCatalogueAnalyticsError: String?
-    @Published var isLoadingTheCatalogueAnalytics = false
+    @Published var trackedVercelProjects: [TrackedVercelProject] = VercelTrackedProjectsStore.load()
+    @Published var vercelAnalytics: [String: VercelAnalyticsSnapshot] = [:]
+    @Published var vercelAnalyticsErrors: [String: String] = [:]
+    @Published var isLoadingVercelAnalytics = false
+    @Published var vercelLastUpdated: Date?
+    @Published var vercelAvailableProjects: [VercelProjectOption]?
+    @Published var isLoadingVercelProjects = false
+    @Published var vercelProjectsError: String?
     @Published var dokployProjects: [DokployProjectSummary]?
     @Published var dokployError: String?
     @Published var dokployLastUpdated: Date?
@@ -595,6 +597,46 @@ class UsageState: ObservableObject {
     /// we still have cached data to display. The popover shows a discrete
     /// "Hors ligne" badge instead of replacing the data with an error banner.
     @Published var isOffline = false
+
+    // MARK: - Vercel Analytics project tracking
+
+    /// True when the popover should show the Vercel Analytics card.
+    var hasVercelAnalytics: Bool {
+        !vercelAnalytics.isEmpty || !vercelAnalyticsErrors.isEmpty || isLoadingVercelAnalytics
+    }
+
+    func isVercelTracked(_ projectID: String) -> Bool {
+        trackedVercelProjects.contains { $0.projectID == projectID }
+    }
+
+    /// Adds or removes a discovered project, persists the list and drops the
+    /// cached snapshot when a project is removed.
+    func toggleTrackedVercelProject(_ option: VercelProjectOption) {
+        if let index = trackedVercelProjects.firstIndex(where: { $0.projectID == option.projectID }) {
+            trackedVercelProjects.remove(at: index)
+            vercelAnalytics[option.projectID] = nil
+            vercelAnalyticsErrors[option.projectID] = nil
+        } else {
+            trackedVercelProjects.append(
+                TrackedVercelProject(
+                    projectID: option.projectID,
+                    name: Self.prettyProjectName(option.name),
+                    slug: option.name
+                )
+            )
+        }
+        VercelTrackedProjectsStore.save(trackedVercelProjects)
+        vercelLastUpdated = nil
+    }
+
+    private static func prettyProjectName(_ slug: String) -> String {
+        slug
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+            .split(separator: " ")
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
+    }
 
     // Cline Pass burn-rate trackers — one per rolling window. Window size matches
     // the bucket's reset cadence so the sample history never straddles a reset.

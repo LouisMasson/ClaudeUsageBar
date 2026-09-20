@@ -165,6 +165,13 @@ class StatusBarController: NSObject {
 
         let settingsView = SettingsViewWrapper(
             settingsState: settingsState,
+            usageState: usageState,
+            onDiscoverVercelProjects: { [weak self] in
+                Task { await self?.discoverVercelProjects() }
+            },
+            onVercelSelectionChanged: { [weak self] in
+                Task { await self?.refreshVercelAnalytics(force: true) }
+            },
             onSave: { [weak self] in
                 self?.saveSettings()
             },
@@ -547,70 +554,84 @@ class StatusBarController: NSObject {
         }
     }
 
+    func refreshVercelAnalytics(force: Bool = false) async {
+        guard let creds = KeychainHelper.loadAll() else { return }
+        await refreshVercelAnalytics(using: creds, force: force)
+    }
+
     private func refreshVercelAnalytics(
         using creds: KeychainHelper.Credentials,
         force: Bool = false
     ) async {
         let token = creds.vercelAPIToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !token.isEmpty else {
-            usageState.hotelRadarAnalytics = nil
-            usageState.hotelRadarAnalyticsError = nil
-            usageState.isLoadingHotelRadarAnalytics = false
-            usageState.theCatalogueAnalytics = nil
-            usageState.theCatalogueAnalyticsError = nil
-            usageState.isLoadingTheCatalogueAnalytics = false
+        let tracked = usageState.trackedVercelProjects
+        guard !token.isEmpty, !tracked.isEmpty else {
+            usageState.vercelAnalytics = [:]
+            usageState.vercelAnalyticsErrors = [:]
+            usageState.isLoadingVercelAnalytics = false
             return
         }
         if !force,
-           let hotelRadar = usageState.hotelRadarAnalytics,
-           let theCatalogue = usageState.theCatalogueAnalytics,
-           Date().timeIntervalSince(hotelRadar.fetchedAt) < 15 * 60,
-           Date().timeIntervalSince(theCatalogue.fetchedAt) < 15 * 60 {
+           let last = usageState.vercelLastUpdated,
+           Date().timeIntervalSince(last) < 15 * 60 {
             return
         }
 
-        usageState.isLoadingHotelRadarAnalytics = true
-        usageState.isLoadingTheCatalogueAnalytics = true
-        usageState.hotelRadarAnalyticsError = nil
-        usageState.theCatalogueAnalyticsError = nil
+        usageState.isLoadingVercelAnalytics = true
 
-        async let hotelRadarResult = fetchVercelAnalyticsResult(
-            for: .hotelRadar,
-            token: token
-        )
-        async let theCatalogueResult = fetchVercelAnalyticsResult(
-            for: .theCatalogue,
-            token: token
-        )
-        let (hotelRadar, theCatalogue) = await (hotelRadarResult, theCatalogueResult)
+        var snapshots: [String: VercelAnalyticsSnapshot] = [:]
+        var errors: [String: String] = [:]
+        await withTaskGroup(
+            of: (String, Result<VercelAnalyticsSnapshot, Error>).self
+        ) { group in
+            for project in tracked {
+                group.addTask {
+                    do {
+                        let snapshot = try await VercelAnalyticsService.shared.fetchAnalytics(
+                            projectID: project.projectID,
+                            token: token
+                        )
+                        return (project.projectID, .success(snapshot))
+                    } catch {
+                        return (project.projectID, .failure(error))
+                    }
+                }
+            }
+            for await (projectID, result) in group {
+                switch result {
+                case .success(let snapshot):
+                    snapshots[projectID] = snapshot
+                case .failure(let error):
+                    errors[projectID] = error.localizedDescription
+                }
+            }
+        }
 
-        switch hotelRadar {
-        case .success(let snapshot):
-            usageState.hotelRadarAnalytics = snapshot
-        case .failure(let error):
-            usageState.hotelRadarAnalyticsError = error.localizedDescription
-        }
-        switch theCatalogue {
-        case .success(let snapshot):
-            usageState.theCatalogueAnalytics = snapshot
-        case .failure(let error):
-            usageState.theCatalogueAnalyticsError = error.localizedDescription
-        }
-        usageState.isLoadingHotelRadarAnalytics = false
-        usageState.isLoadingTheCatalogueAnalytics = false
+        usageState.vercelAnalytics = snapshots
+        usageState.vercelAnalyticsErrors = errors
+        usageState.vercelLastUpdated = Date()
+        usageState.isLoadingVercelAnalytics = false
     }
 
-    private func fetchVercelAnalyticsResult(
-        for site: VercelAnalyticsSite,
-        token: String
-    ) async -> Result<VercelAnalyticsSnapshot, Error> {
-        do {
-            return .success(
-                try await VercelAnalyticsService.shared.fetchAnalytics(for: site, token: token)
-            )
-        } catch {
-            return .failure(error)
+    /// Loads the team's Vercel projects so the settings picker can list them.
+    func discoverVercelProjects() async {
+        guard let creds = KeychainHelper.loadAll() else { return }
+        let token = creds.vercelAPIToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else {
+            usageState.vercelAvailableProjects = nil
+            usageState.vercelProjectsError = "Ajoutez d’abord un jeton API Vercel."
+            return
         }
+
+        usageState.isLoadingVercelProjects = true
+        usageState.vercelProjectsError = nil
+        do {
+            usageState.vercelAvailableProjects = try await VercelAnalyticsService.shared
+                .fetchProjects(token: token)
+        } catch {
+            usageState.vercelProjectsError = error.localizedDescription
+        }
+        usageState.isLoadingVercelProjects = false
     }
 
     private func showDashboard() {

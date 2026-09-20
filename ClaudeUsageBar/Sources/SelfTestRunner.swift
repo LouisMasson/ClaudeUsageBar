@@ -147,13 +147,19 @@ enum SelfTestRunner {
         try require(response.data.visitors == 17, "Vercel Analytics visitors")
         try require(response.data.pageviews == 42, "Vercel Analytics pageviews")
         try require(
-            VercelAnalyticsSite.hotelRadar.projectID
-                != VercelAnalyticsSite.theCatalogue.projectID,
+            TrackedVercelProject.hotelRadar.projectID
+                != TrackedVercelProject.theCatalogue.projectID,
             "Vercel Analytics projects must stay distinct"
         )
         try require(
-            VercelAnalyticsSite.theCatalogue.domain == "thecatalogue.studio",
-            "The Catalogue production domain"
+            TrackedVercelProject.theCatalogue.slug == "currated-product",
+            "The Catalogue project slug"
+        )
+        try require(
+            VercelTrackedProjectsStore.load(
+                defaults: UserDefaults(suiteName: "ClaudeUsageBarVercelSelfTest")!
+            ) == TrackedVercelProject.defaults,
+            "Vercel tracked projects default to the two seeded projects"
         )
     }
 

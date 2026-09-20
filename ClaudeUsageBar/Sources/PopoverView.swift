@@ -74,12 +74,7 @@ if usageState.dokployProjects != nil
                         DokployCompactCard(usageState: usageState)
                     }
 
-                    if usageState.hotelRadarAnalytics != nil
-                        || usageState.theCatalogueAnalytics != nil
-                        || usageState.hotelRadarAnalyticsError != nil
-                        || usageState.theCatalogueAnalyticsError != nil
-                        || usageState.isLoadingHotelRadarAnalytics
-                        || usageState.isLoadingTheCatalogueAnalytics {
+                    if usageState.hasVercelAnalytics {
                         Divider()
                         VercelAnalyticsCompactCard(usageState: usageState)
                     }
@@ -472,20 +467,17 @@ struct VercelAnalyticsCompactCard: View {
                 isCollapsed: $isCollapsed
             )
             if !isCollapsed {
-                if let snapshot = usageState.hotelRadarAnalytics {
-                    siteRow(site: .hotelRadar, snapshot: snapshot)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                ForEach(usageState.trackedVercelProjects) { project in
+                    if let snapshot = usageState.vercelAnalytics[project.projectID] {
+                        siteRow(project: project, snapshot: snapshot)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    } else if let error = usageState.vercelAnalyticsErrors[project.projectID] {
+                        Text("\(project.name) : \(error)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
                 }
-                if usageState.hotelRadarAnalytics != nil
-                    && usageState.theCatalogueAnalytics != nil {
-                    Divider()
-                }
-                if let snapshot = usageState.theCatalogueAnalytics {
-                    siteRow(site: .theCatalogue, snapshot: snapshot)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                }
-                if usageState.isLoadingHotelRadarAnalytics
-                    || usageState.isLoadingTheCatalogueAnalytics {
+                if usageState.isLoadingVercelAnalytics {
                     HStack(spacing: 8) {
                         ProgressView().scaleEffect(0.7)
                         Text("Chargement de Vercel Analytics…")
@@ -493,41 +485,30 @@ struct VercelAnalyticsCompactCard: View {
                             .foregroundColor(.secondary)
                     }
                 }
-                if let error = usageState.hotelRadarAnalyticsError {
-                    Text("Hotel Radar : \(error)")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-                if let error = usageState.theCatalogueAnalyticsError {
-                    Text("The Catalogue : \(error)")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
             }
         }
     }
 
     private var compactDetail: String? {
-        let count = [
-            usageState.hotelRadarAnalytics,
-            usageState.theCatalogueAnalytics
-        ]
-        .compactMap { $0?.metrics.thirtyDays.visitors }
-        .reduce(0, +)
+        let count = usageState.vercelAnalytics.values
+            .map(\.metrics.thirtyDays.visitors)
+            .reduce(0, +)
         return count > 0 ? "\(count) visiteurs / 30 j" : nil
     }
 
     private func siteRow(
-        site: VercelAnalyticsSite,
+        project: TrackedVercelProject,
         snapshot: VercelAnalyticsSnapshot
     ) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
-                Text(site.displayName)
+                Text(project.name)
                     .font(.caption.bold())
                 Spacer()
-                Link(destination: site.dashboardURL) {
-                    Image(systemName: "arrow.up.right.square")
+                if let url = project.dashboardURL {
+                    Link(destination: url) {
+                        Image(systemName: "arrow.up.right.square")
+                    }
                 }
             }
             HStack(spacing: 18) {
@@ -905,6 +886,9 @@ struct CookieExpiredView: View {
 
 struct SettingsViewWrapper: View {
     @ObservedObject var settingsState: SettingsState
+    @ObservedObject var usageState: UsageState
+    let onDiscoverVercelProjects: () -> Void
+    let onVercelSelectionChanged: () -> Void
     let onSave: () -> Void
     let onCancel: () -> Void
 
@@ -983,16 +967,68 @@ struct SettingsViewWrapper: View {
 
             Divider()
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text("Vercel Analytics")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 SecureField("Jeton API Vercel", text: $settingsState.vercelAPIToken)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.caption, design: .monospaced))
-                Text("Projets Hotel Radar et The Catalogue préconfigurés. Le jeton reste dans le Keychain de l’app.")
+                Text("Le jeton reste dans le Keychain de l’app.")
                     .font(.caption2)
                     .foregroundColor(.secondary)
+
+                Button {
+                    onDiscoverVercelProjects()
+                } label: {
+                    Label("Charger les projets de l’équipe", systemImage: "arrow.clockwise")
+                }
+                .font(.caption)
+                .disabled(usageState.isLoadingVercelProjects)
+
+                if usageState.isLoadingVercelProjects {
+                    HStack(spacing: 6) {
+                        ProgressView().scaleEffect(0.6)
+                        Text("Chargement des projets…")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                if let error = usageState.vercelProjectsError {
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+
+                if let projects = usageState.vercelAvailableProjects {
+                    if projects.isEmpty {
+                        Text("Aucun projet trouvé pour ce jeton.")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    } else {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(projects) { project in
+                                Toggle(isOn: Binding(
+                                    get: { usageState.isVercelTracked(project.projectID) },
+                                    set: { _ in
+                                        usageState.toggleTrackedVercelProject(project)
+                                        onVercelSelectionChanged()
+                                    }
+                                )) {
+                                    Text(project.name)
+                                        .font(.caption)
+                                }
+                                .toggleStyle(.switch)
+                                .controlSize(.small)
+                            }
+                        }
+                    }
+                    Text("\(usageState.trackedVercelProjects.count) projet(s) suivi(s).")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+
                 Link(
                     "Créer un jeton Vercel",
                     destination: URL(string: "https://vercel.com/account/tokens")!

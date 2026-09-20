@@ -16,29 +16,55 @@ struct VercelAnalyticsSnapshot: Equatable {
     let fetchedAt: Date
 }
 
-struct VercelAnalyticsSite: Equatable {
+/// A Vercel project the user chose to track. Persisted in UserDefaults
+/// (non-secret) so the list can be edited freely from the settings.
+struct TrackedVercelProject: Codable, Identifiable, Equatable {
     let projectID: String
-    let displayName: String
-    let domain: String
-    let dashboardURL: URL
+    let name: String
+    let slug: String
 
-    static let hotelRadar = VercelAnalyticsSite(
+    var id: String { projectID }
+
+    var dashboardURL: URL? {
+        URL(string: "https://vercel.com/\(VercelAnalyticsService.teamSlug)/\(slug)/analytics")
+    }
+
+    static let hotelRadar = TrackedVercelProject(
         projectID: "prj_oiJDV4EyjMJnJWWLmdC82Unmrq77",
-        displayName: "Hotel Radar",
-        domain: "hotel-radar-landing.vercel.app",
-        dashboardURL: URL(
-            string: "https://vercel.com/louis-massons-projects/hotel-radar-landing/analytics"
-        )!
+        name: "Hotel Radar",
+        slug: "hotel-radar-landing"
     )
 
-    static let theCatalogue = VercelAnalyticsSite(
+    static let theCatalogue = TrackedVercelProject(
         projectID: "prj_1wOHuhWmG5FEyTfs6WtiQuKnrrRx",
-        displayName: "The Catalogue",
-        domain: "thecatalogue.studio",
-        dashboardURL: URL(
-            string: "https://vercel.com/louis-massons-projects/currated-product/analytics"
-        )!
+        name: "The Catalogue",
+        slug: "currated-product"
     )
+
+    /// Seeded on first launch so the existing dashboards keep working.
+    static let defaults: [TrackedVercelProject] = [.hotelRadar, .theCatalogue]
+}
+
+/// A project discovered through the Vercel API, offered in the settings picker.
+struct VercelProjectOption: Identifiable, Equatable {
+    let projectID: String
+    let name: String
+    var id: String { projectID }
+}
+
+enum VercelTrackedProjectsStore {
+    static let key = "vercelTrackedProjects"
+
+    static func load(defaults: UserDefaults = .standard) -> [TrackedVercelProject] {
+        guard let data = defaults.data(forKey: key) else { return TrackedVercelProject.defaults }
+        return (try? JSONDecoder().decode([TrackedVercelProject].self, from: data))
+            ?? TrackedVercelProject.defaults
+    }
+
+    static func save(_ projects: [TrackedVercelProject], defaults: UserDefaults = .standard) {
+        guard let data = try? JSONEncoder().encode(projects) else { return }
+        defaults.set(data, forKey: key)
+    }
 }
 
 private struct VercelVisitCountResponse: Decodable {
@@ -54,17 +80,28 @@ private struct VercelVisitCount: Decodable {
     }
 }
 
+private struct VercelProjectsResponse: Decodable {
+    let projects: [VercelProjectDTO]
+}
+
+private struct VercelProjectDTO: Decodable {
+    let id: String
+    let name: String
+}
+
 actor VercelAnalyticsService {
     static let shared = VercelAnalyticsService()
 
     static let teamID = "team_cpxCivfFxF9mxxvfAnjXFaNN"
+    static let teamSlug = "louis-massons-projects"
 
     private let endpoint = URL(
         string: "https://api.vercel.com/v1/query/web-analytics/visits/count"
     )!
+    private let projectsEndpoint = URL(string: "https://api.vercel.com/v9/projects")!
 
     func fetchAnalytics(
-        for site: VercelAnalyticsSite,
+        projectID: String,
         token: String,
         now: Date = Date()
     ) async throws -> VercelAnalyticsSnapshot {
@@ -74,13 +111,13 @@ actor VercelAnalyticsService {
         let startOfThirtyDays = calendar.date(byAdding: .day, value: -29, to: startOfToday)!
 
         async let today = fetchCount(
-            projectID: site.projectID, token: token, since: startOfToday, until: now
+            projectID: projectID, token: token, since: startOfToday, until: now
         )
         async let sevenDays = fetchCount(
-            projectID: site.projectID, token: token, since: startOfSevenDays, until: now
+            projectID: projectID, token: token, since: startOfSevenDays, until: now
         )
         async let thirtyDays = fetchCount(
-            projectID: site.projectID, token: token, since: startOfThirtyDays, until: now
+            projectID: projectID, token: token, since: startOfThirtyDays, until: now
         )
 
         return try await VercelAnalyticsSnapshot(
@@ -91,6 +128,38 @@ actor VercelAnalyticsService {
             ),
             fetchedAt: now
         )
+    }
+
+    /// Lists every project visible to the token within the team, for the picker.
+    func fetchProjects(token: String) async throws -> [VercelProjectOption] {
+        var components = URLComponents(url: projectsEndpoint, resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "teamId", value: Self.teamID),
+            URLQueryItem(name: "limit", value: "100")
+        ]
+        guard let url = components.url else { throw APIError.invalidURL }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+        switch http.statusCode {
+        case 200:
+            let decoded = try JSONDecoder().decode(VercelProjectsResponse.self, from: data)
+            return decoded.projects
+                .map { VercelProjectOption(projectID: $0.id, name: $0.name) }
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        case 401, 403:
+            throw APIError.unauthorized
+        case 429:
+            throw APIError.rateLimited
+        default:
+            throw APIError.serverError(http.statusCode)
+        }
     }
 
     private func fetchCount(

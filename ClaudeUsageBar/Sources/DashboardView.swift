@@ -178,27 +178,24 @@ struct DashboardView: View {
                     Link(destination: URL(string: "https://analytics.patronusguardian.org")!) {
                         Label("Plausible", systemImage: "arrow.up.right.square")
                     }
-                    Link(destination: VercelAnalyticsSite.hotelRadar.dashboardURL) {
-                        Label("Hotel Radar", systemImage: "arrow.up.right.square")
-                    }
-                    Link(destination: VercelAnalyticsSite.theCatalogue.dashboardURL) {
-                        Label("The Catalogue", systemImage: "arrow.up.right.square")
+                    ForEach(usageState.trackedVercelProjects) { project in
+                        if let url = project.dashboardURL {
+                            Link(destination: url) {
+                                Label(project.name, systemImage: "arrow.up.right.square")
+                            }
+                        }
                     }
                 }
             }
 
             let sites = usageState.vpsStatus.map(websiteAnalyticsSites) ?? []
-            if sites.isEmpty
-                && usageState.hotelRadarAnalytics == nil
-                && usageState.theCatalogueAnalytics == nil {
+            if sites.isEmpty && !usageState.hasVercelAnalytics {
                 VStack(spacing: 8) {
-                    if usageState.isLoadingHotelRadarAnalytics
-                        || usageState.isLoadingTheCatalogueAnalytics {
+                    if usageState.isLoadingVercelAnalytics {
                         ProgressView()
                     }
                     Text(
-                        usageState.hotelRadarAnalyticsError
-                            ?? usageState.theCatalogueAnalyticsError
+                        usageState.vercelAnalyticsErrors.values.first
                             ?? usageState.vpsError
                             ?? "Ajoutez un jeton Vercel dans les réglages pour charger les projets."
                     )
@@ -219,32 +216,23 @@ struct DashboardView: View {
                             )
                         }
                     }
-                    if let hotelRadar = usageState.hotelRadarAnalytics {
-                        WebsiteAnalyticsCard(
-                            title: VercelAnalyticsSite.hotelRadar.displayName,
-                            domain: VercelAnalyticsSite.hotelRadar.domain,
-                            analytics: hotelRadar.metrics,
-                            isAvailable: true
-                        )
-                    }
-                    if let theCatalogue = usageState.theCatalogueAnalytics {
-                        WebsiteAnalyticsCard(
-                            title: VercelAnalyticsSite.theCatalogue.displayName,
-                            domain: VercelAnalyticsSite.theCatalogue.domain,
-                            analytics: theCatalogue.metrics,
-                            isAvailable: true
-                        )
+                    ForEach(usageState.trackedVercelProjects) { project in
+                        if let snapshot = usageState.vercelAnalytics[project.projectID] {
+                            WebsiteAnalyticsCard(
+                                title: project.name,
+                                domain: project.slug,
+                                analytics: snapshot.metrics,
+                                isAvailable: true
+                            )
+                        }
                     }
                 }
-                if let error = usageState.hotelRadarAnalyticsError {
-                    Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                if let error = usageState.theCatalogueAnalyticsError {
-                    Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                ForEach(usageState.trackedVercelProjects) { project in
+                    if let error = usageState.vercelAnalyticsErrors[project.projectID] {
+                        Label("\(project.name) : \(error)", systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
         }

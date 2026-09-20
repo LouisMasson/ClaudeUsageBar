@@ -22,14 +22,6 @@ struct PopoverView: View {
                         .foregroundColor(.secondary)
                 }
                 Spacer()
-                if !usageState.openAnomalies.isEmpty {
-                    Label("\(usageState.openAnomalies.count)", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption.bold())
-                        .foregroundColor(usageState.openAnomalies.contains(where: \.isCritical) ? UsagePalette.red : UsagePalette.orange)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(Color.secondary.opacity(0.12)))
-                }
                 if usageState.isOffline {
                     // Discrete offline badge — keeps the cached data visible rather
                     // than replacing everything with an error banner.
@@ -53,10 +45,6 @@ struct PopoverView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    if !usageState.sortedAnomalies.isEmpty {
-                        AnomalyCompactCard(usageState: usageState)
-                        Divider()
-                    }
                     if usageState.usage != nil
                         || usageState.codexUsage != nil
                         || usageState.clineUsage != nil
@@ -77,11 +65,6 @@ struct PopoverView: View {
                         || usageState.isLoadingGitHubActivity {
                         Divider()
                         GitHubCompactCard(usageState: usageState)
-                    }
-
-                    if usageState.vpsStatus != nil || usageState.vpsError != nil {
-                        Divider()
-                        VPSCompactCard(usageState: usageState)
                     }
 
                     if usageState.hotelRadarAnalytics != nil
@@ -268,40 +251,6 @@ struct PomodoroCompactCard: View {
         return pomodoroState.completedFocusSessions >= PomodoroTimer.sessionsPerCycle
             ? "Nouveau cycle"
             : "Session suivante"
-    }
-}
-
-struct AnomalyCompactCard: View {
-    @ObservedObject var usageState: UsageState
-
-    var body: some View {
-        let visible = Array(usageState.sortedAnomalies.prefix(3))
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Label("Anomalies", systemImage: "waveform.path.ecg.rectangle")
-                    .font(.headline)
-                Spacer()
-                Text("\(usageState.openAnomalies.count) ouverte(s)")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-            ForEach(visible) { event in
-                HStack(alignment: .top, spacing: 8) {
-                    Circle()
-                        .fill(event.isOpen ? (event.isCritical ? UsagePalette.red : UsagePalette.orange) : UsagePalette.green)
-                        .frame(width: 8, height: 8)
-                        .padding(.top, 4)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(event.message)
-                            .font(.caption)
-                            .lineLimit(2)
-                        Text(event.isOpen ? "En cours · \(event.source)" : "Résolue · \(event.source)")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-        }
     }
 }
 

@@ -578,6 +578,10 @@ class UsageState: ObservableObject {
     @Published var theCatalogueAnalytics: VercelAnalyticsSnapshot?
     @Published var theCatalogueAnalyticsError: String?
     @Published var isLoadingTheCatalogueAnalytics = false
+    @Published var dokployProjects: [DokployProjectSummary]?
+    @Published var dokployError: String?
+    @Published var dokployLastUpdated: Date?
+    @Published var isLoadingDokploy = false
     @Published var anomalyEvents: [AnomalyEvent] = AnomalyHistoryStore.loadEvents()
     @Published var anomalySyncError: String?
 

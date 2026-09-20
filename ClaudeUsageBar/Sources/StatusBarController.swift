@@ -492,26 +492,53 @@ class StatusBarController: NSObject {
 
     private func refreshDokploy(using creds: KeychainHelper.Credentials) async {
         guard !isRefreshingDokploy else { return }
-        let notificationsEnabled =
-            UserDefaults.standard.object(forKey: SettingsState.dokployNotificationsKey) == nil
-                ? true
-                : UserDefaults.standard.bool(forKey: SettingsState.dokployNotificationsKey)
-        guard notificationsEnabled,
-              !creds.dokployBaseURL.isEmpty,
-              !creds.dokployAPIKey.isEmpty else {
+        let baseURL = creds.dokployBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let apiKey = creds.dokployAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !baseURL.isEmpty, !apiKey.isEmpty else {
+            usageState.dokployProjects = nil
+            usageState.dokployError = nil
+            usageState.isLoadingDokploy = false
             return
         }
 
         isRefreshingDokploy = true
         defer { isRefreshingDokploy = false }
+
+        // Project/service overview powering the popover card. The Dokploy
+        // timer fires every 30 s, so throttle a touch to avoid hammering it.
+        let projectsAreStale = usageState.dokployLastUpdated
+            .map { Date().timeIntervalSince($0) > 60 } ?? true
+        if usageState.dokployProjects == nil || projectsAreStale {
+            usageState.isLoadingDokploy = true
+            do {
+                let projects = try await DokployAPIService.shared.fetchProjects(
+                    baseURL: baseURL,
+                    apiKey: apiKey
+                )
+                usageState.dokployProjects = projects
+                usageState.dokployError = nil
+                usageState.dokployLastUpdated = Date()
+            } catch {
+                usageState.dokployError = error.localizedDescription
+            }
+            usageState.isLoadingDokploy = false
+        }
+
+        // Deployment-finished notifications stay opt-in and independent.
+        let notificationsEnabled =
+            UserDefaults.standard.object(forKey: SettingsState.dokployNotificationsKey) == nil
+                ? true
+                : UserDefaults.standard.bool(forKey: SettingsState.dokployNotificationsKey)
+        guard notificationsEnabled else { return }
+
         do {
             let deployments = try await DokployAPIService.shared.fetchDeployments(
-                baseURL: creds.dokployBaseURL,
-                apiKey: creds.dokployAPIKey
+                baseURL: baseURL,
+                apiKey: apiKey
             )
             let finished = DokployDeploymentTracker.newlyFinished(
                 deployments,
-                baseURL: creds.dokployBaseURL
+                baseURL: baseURL
             )
             finished.forEach { NotificationManager.shared.notifyDokployDeployment($0) }
         } catch {

@@ -67,6 +67,13 @@ struct PopoverView: View {
                         GitHubCompactCard(usageState: usageState)
                     }
 
+if usageState.dokployProjects != nil
+                        || usageState.dokployError != nil
+                        || usageState.isLoadingDokploy {
+                        Divider()
+                        DokployCompactCard(usageState: usageState)
+                    }
+
                     if usageState.hotelRadarAnalytics != nil
                         || usageState.theCatalogueAnalytics != nil
                         || usageState.hotelRadarAnalyticsError != nil
@@ -351,6 +358,105 @@ struct VPSCompactCard: View {
     }
 
     private func percent(_ value: Double) -> String { "\(Int(value.rounded()))%" }
+}
+
+struct DokployCompactCard: View {
+    @ObservedObject var usageState: UsageState
+    @AppStorage("popover.dokployCollapsed") private var isCollapsed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            CollapsibleProviderHeader(
+                title: "Dokploy",
+                symbol: "shippingbox",
+                detail: detail,
+                isCollapsed: $isCollapsed
+            )
+
+            if !isCollapsed {
+                if let projects = usageState.dokployProjects {
+                    if projects.isEmpty {
+                        Text("Aucun projet")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    } else {
+                        ForEach(projects) { project in
+                            projectRow(project)
+                        }
+                    }
+                } else if usageState.isLoadingDokploy {
+                    HStack(spacing: 8) {
+                        ProgressView().scaleEffect(0.7)
+                        Text("Chargement de Dokploy…")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                } else if let error = usageState.dokployError {
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
+    private var detail: String? {
+        guard let projects = usageState.dokployProjects else { return nil }
+        let services = projects.reduce(0) { $0 + $1.services.count }
+        return "\(projects.count) projets · \(services) services"
+    }
+
+    @ViewBuilder
+    private func projectRow(_ project: DokployProjectSummary) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(projectDotColor(project))
+                    .frame(width: 7, height: 7)
+                Text(project.name)
+                    .font(.caption.bold())
+                    .lineLimit(1)
+                Spacer()
+                Text("\(project.services.count)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            ForEach(project.services) { service in
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(color(for: service.status))
+                        .frame(width: 5, height: 5)
+                        .padding(.leading, 14)
+                    Image(systemName: service.kind.symbol)
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                    Text(service.name)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                    Spacer()
+                    Text(service.status.label)
+                        .font(.system(size: 9))
+                        .foregroundColor(color(for: service.status))
+                }
+            }
+        }
+    }
+
+    private func projectDotColor(_ project: DokployProjectSummary) -> Color {
+        if project.hasError { return UsagePalette.red }
+        if project.isDeploying { return UsagePalette.orange }
+        return UsagePalette.green
+    }
+
+    private func color(for status: DokployServiceStatus) -> Color {
+        switch status {
+        case .healthy: return UsagePalette.green
+        case .deploying: return UsagePalette.orange
+        case .error: return UsagePalette.red
+        case .unknown: return .secondary
+        }
+    }
 }
 
 struct VercelAnalyticsCompactCard: View {
@@ -870,7 +976,7 @@ struct SettingsViewWrapper: View {
                     .font(.system(.caption, design: .monospaced))
                 Toggle("Notifier les déploiements terminés", isOn: $settingsState.dokployNotificationsEnabled)
                     .toggleStyle(.switch)
-                Text("Clé API avec permission de lecture des déploiements. Les secrets restent dans le Keychain.")
+                Text("Clé API avec permission de lecture des projets, services et déploiements. Les secrets restent dans le Keychain.")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }

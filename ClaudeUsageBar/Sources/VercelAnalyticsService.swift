@@ -89,6 +89,14 @@ private struct VercelProjectDTO: Decodable {
     let name: String
 }
 
+private struct VercelErrorResponse: Decodable {
+    struct Inner: Decodable {
+        let code: String?
+        let message: String?
+    }
+    let error: Inner
+}
+
 actor VercelAnalyticsService {
     static let shared = VercelAnalyticsService()
 
@@ -195,6 +203,12 @@ actor VercelAnalyticsService {
         case 429:
             throw APIError.rateLimited
         default:
+            // Vercel answers 400 (web_analytics_not_enabled) — and 404 on some
+            // teams — when Web Analytics is off for the project.
+            let apiError = try? JSONDecoder().decode(VercelErrorResponse.self, from: data)
+            if apiError?.error.code == "web_analytics_not_enabled" || http.statusCode == 404 {
+                throw APIError.notEnabled("Web Analytics non activé")
+            }
             throw APIError.serverError(http.statusCode)
         }
     }
